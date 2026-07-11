@@ -1,4 +1,6 @@
 import { useState, useMemo } from 'react'
+import jsPDF from 'jspdf'
+import autoTable from 'jspdf-autotable'
 import { Card, Button, StatBox, fmt } from './ui'
 
 interface SampleGroup {
@@ -86,6 +88,9 @@ export default function StatsTool() {
   const [newLabelName, setNewLabelName] = useState('')
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(new Set())
   const [assignLabelId, setAssignLabelId] = useState<string>('')
+
+  // Export selection: which sections (labels + unlabeled) to include in PDF
+  const [exportSelection, setExportSelection] = useState<Set<string>>(new Set()) // '__unlabeled__' or label.id
 
   const computed = useMemo(() => {
     return groups.map((g) => {
@@ -236,6 +241,117 @@ export default function StatsTool() {
       else n.add(id)
       return n
     })
+  }
+
+  function toggleExportSection(id: string) {
+    setExportSelection((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  function selectAllExport() {
+    const all = new Set<string>()
+    if (unlabeledResults.length > 0) all.add('__unlabeled__')
+    labels.forEach((l) => all.add(l.id))
+    setExportSelection(all)
+  }
+
+  function exportPDF() {
+    const doc = new jsPDF()
+    const dateStr = new Date().toLocaleDateString()
+    let hasContent = false
+
+    // Title
+    doc.setFontSize(16)
+    doc.setFont('helvetica', 'bold')
+    doc.text('Science Stats Lab - Results Export', 14, 20)
+    doc.setFontSize(10)
+    doc.setFont('helvetica', 'normal')
+    doc.text(`Date: ${dateStr}`, 14, 27)
+
+    let y = 35
+
+    // Unlabeled
+    if (exportSelection.has('__unlabeled__') && unlabeledResults.length > 0) {
+      autoTable(doc, {
+        startY: y,
+        head: [['Unlabeled Results', '', '', '', '']],
+        body: [['Group', 'N', 'Mean', 'Std Dev', 'SEM']],
+        theme: 'plain',
+        headStyles: { fontStyle: 'bold', fontSize: 12, fillColor: [240, 240, 240] },
+        margin: { left: 14, right: 14 },
+      })
+      // @ts-expect-error jspdf-autotable adds lastAutoTable
+      y = doc.lastAutoTable.finalY + 2
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Group', 'N', 'Mean', 'Std Dev', 'SEM']],
+        body: unlabeledResults.map((r) => [
+          r.groupName,
+          String(r.n),
+          `${r.mean} ${r.unit}`,
+          `${r.std} ${r.unit}`,
+          `${r.sem} ${r.unit}`,
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [66, 139, 202], fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 3 },
+        margin: { left: 14, right: 14 },
+      })
+      // @ts-expect-error jspdf-autotable adds lastAutoTable
+      y = doc.lastAutoTable.finalY + 8
+      hasContent = true
+    }
+
+    // Each selected label
+    for (const lbl of labels) {
+      if (!exportSelection.has(lbl.id)) continue
+      const items = results.filter((r) => r.labelId === lbl.id)
+      if (items.length === 0) continue
+
+      if (y > 250) {
+        doc.addPage()
+        y = 20
+      }
+
+      autoTable(doc, {
+        startY: y,
+        head: [[lbl.name, '', '', '', '']],
+        body: [],
+        theme: 'plain',
+        headStyles: { fontStyle: 'bold', fontSize: 12, fillColor: [240, 240, 240] },
+        margin: { left: 14, right: 14 },
+      })
+      // @ts-expect-error jspdf-autotable adds lastAutoTable
+      y = doc.lastAutoTable.finalY + 2
+
+      autoTable(doc, {
+        startY: y,
+        head: [['Group', 'N', 'Mean', 'Std Dev', 'SEM']],
+        body: items.map((r) => [
+          r.groupName,
+          String(r.n),
+          `${r.mean} ${r.unit}`,
+          `${r.std} ${r.unit}`,
+          `${r.sem} ${r.unit}`,
+        ]),
+        theme: 'grid',
+        headStyles: { fillColor: [66, 139, 202], fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 3 },
+        margin: { left: 14, right: 14 },
+      })
+      // @ts-expect-error jspdf-autotable adds lastAutoTable
+      y = doc.lastAutoTable.finalY + 8
+      hasContent = true
+    }
+
+    if (!hasContent) return
+
+    doc.save(`science-stats-${Date.now()}.pdf`)
   }
 
   // ── Grouped results for modal ───────────────────
@@ -401,6 +517,48 @@ export default function StatsTool() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
               <h2 className="text-base font-bold">Saved Results</h2>
               <div className="flex items-center gap-2">
+                {/* Export controls */}
+                {results.length > 0 && (
+                  <>
+                    <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--color-accent-light)] border border-[var(--color-accent)]/20">
+                      <span className="text-xs text-[var(--color-muted)]">Export:</span>
+                      {unlabeledResults.length > 0 && (
+                        <label className="flex items-center gap-1 text-xs cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={exportSelection.has('__unlabeled__')}
+                            onChange={() => toggleExportSection('__unlabeled__')}
+                            className="w-3.5 h-3.5 accent-[var(--color-accent)]"
+                          />
+                          Unlabeled
+                        </label>
+                      )}
+                      {labels.map((l) => (
+                        <label key={l.id} className="flex items-center gap-1 text-xs cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={exportSelection.has(l.id)}
+                            onChange={() => toggleExportSection(l.id)}
+                            className="w-3.5 h-3.5 accent-[var(--color-accent)]"
+                          />
+                          {l.name}
+                        </label>
+                      ))}
+                      <button
+                        onClick={selectAllExport}
+                        className="text-[10px] text-[var(--color-accent)] hover:underline px-1"
+                      >All</button>
+                      <Button
+                        size="sm"
+                        onClick={exportPDF}
+                        disabled={exportSelection.size === 0}
+                        className="ml-1"
+                      >
+                        PDF
+                      </Button>
+                    </div>
+                  </>
+                )}
                 {results.length > 0 && (
                   <button
                     onClick={clearAllResults}
