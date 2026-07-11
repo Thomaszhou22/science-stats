@@ -5,7 +5,7 @@ interface Reagent {
   id: string
   name: string
   concentration: string
-  volML: string // canonical: user-typed string for mL
+  volML: string
 }
 
 let reagentCounter = 0
@@ -32,13 +32,18 @@ function makePresets(): Reagent[] {
 
 export default function SolutionTool() {
   const [reagents, setReagents] = useState<Reagent[]>(makePresets())
-  const [totalInput, setTotalInput] = useState('') // user-typed total volume in mL
+  const [totalInput, setTotalInput] = useState('')
   const [digits, setDigits] = useState(2)
 
-  // Track who triggered the change to avoid loops
+  // Draft states: while a field is focused, show what the user typed, not computed value
+  const [fracDraft, setFracDraft] = useState<Record<string, string>>({})
+  const [fracFocused, setFracFocused] = useState<string | null>(null)
+
+  const [ulDraft, setUlDraft] = useState<Record<string, string>>({})
+  const [ulFocused, setUlFocused] = useState<string | null>(null)
+
   const lastEdit = useRef<'vol' | 'total' | 'fraction' | null>(null)
 
-  // Parse all volumes
   const vols = reagents.map((r) => {
     const v = parseFloat(r.volML)
     return isNaN(v) ? 0 : v
@@ -52,11 +57,11 @@ export default function SolutionTool() {
   function editReagentVol(id: string, val: string) {
     lastEdit.current = 'vol'
     setReagents((prev) => prev.map((r) => (r.id === id ? { ...r, volML: val } : r)))
-    // Total auto-recalculates: clear locked total so sum takes over
     setTotalInput('')
   }
 
   function editReagentUL(id: string, ulVal: string) {
+    setUlDraft((prev) => ({ ...prev, [id]: ulVal }))
     const ul = parseFloat(ulVal)
     const mlVal = isNaN(ul) ? '' : (ul / 1000).toString()
     editReagentVol(id, mlVal)
@@ -67,7 +72,6 @@ export default function SolutionTool() {
     const newTotal = parseFloat(val)
     setTotalInput(val)
     if (isNaN(newTotal) || newTotal <= 0 || sumVol === 0) return
-    // Scale all volumes proportionally
     const ratio = newTotal / sumVol
     setReagents((prev) =>
       prev.map((r) => {
@@ -81,6 +85,7 @@ export default function SolutionTool() {
 
   function editFraction(id: string, pctStr: string) {
     lastEdit.current = 'fraction'
+    setFracDraft((prev) => ({ ...prev, [id]: pctStr }))
     const pct = parseFloat(pctStr)
     if (isNaN(pct) || totalNum <= 0) return
     const targetVol = (pct / 100) * totalNum
@@ -100,6 +105,8 @@ export default function SolutionTool() {
   function resetToPresets() {
     setReagents(makePresets())
     setTotalInput('')
+    setFracDraft({})
+    setUlDraft({})
   }
 
   function updateReagentName(id: string, name: string) {
@@ -111,14 +118,12 @@ export default function SolutionTool() {
 
   return (
     <div className="space-y-6">
-      {/* Intro */}
       <Card className="bg-[var(--color-accent-light)] border-[var(--color-accent)]/20">
         <p className="text-sm text-[var(--color-text)]">
           Edit any field and the rest update automatically. Enter individual volumes, total volume, or fractions, they all sync. mL and µL are interconvertible.
         </p>
       </Card>
 
-      {/* Decimal selector */}
       <div className="flex items-center justify-end gap-2">
         <label className="text-xs text-[var(--color-muted)]">Decimals</label>
         <select
@@ -132,7 +137,6 @@ export default function SolutionTool() {
         </select>
       </div>
 
-      {/* Main table */}
       <Card className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -148,7 +152,12 @@ export default function SolutionTool() {
           <tbody>
             {reagents.map((r, i) => {
               const pct = totalNum > 0 && vols[i] > 0 ? (vols[i] / totalNum) * 100 : 0
-              const ulVal = vols[i] > 0 ? fmt(vols[i] * 1000, digits) : ''
+              const computedUL = vols[i] > 0 ? fmt(vols[i] * 1000, digits) : ''
+
+              // While focused, show draft; otherwise show computed
+              const ulDisplay = ulFocused === r.id ? (ulDraft[r.id] ?? '') : computedUL
+              const fracDisplay = fracFocused === r.id ? (fracDraft[r.id] ?? '') : (vols[i] > 0 ? fmt(pct, digits) : '')
+
               return (
                 <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0 group">
                   <td className="py-2.5 pr-3">
@@ -179,8 +188,10 @@ export default function SolutionTool() {
                   <td className="py-2 px-1 text-right">
                     <input
                       type="number"
-                      value={ulVal}
+                      value={ulDisplay}
                       onChange={(e) => editReagentUL(r.id, e.target.value)}
+                      onFocus={() => setUlFocused(r.id)}
+                      onBlur={() => { setUlFocused(null); setUlDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
                       placeholder="0"
                       step="any"
                       className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
@@ -196,8 +207,10 @@ export default function SolutionTool() {
                       </div>
                       <input
                         type="number"
-                        value={vols[i] > 0 ? fmt(pct, digits) : ''}
+                        value={fracDisplay}
                         onChange={(e) => editFraction(r.id, e.target.value)}
+                        onFocus={() => setFracFocused(r.id)}
+                        onBlur={() => { setFracFocused(null); setFracDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
                         placeholder="0"
                         step="any"
                         className="text-right font-mono text-sm w-16 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
@@ -239,13 +252,11 @@ export default function SolutionTool() {
         </table>
       </Card>
 
-      {/* Actions */}
       <div className="flex justify-center gap-3">
         <Button variant="outline" onClick={addReagent}>+ Add Reagent</Button>
         <Button variant="ghost" onClick={resetToPresets}>Reset Presets</Button>
       </div>
 
-      {/* Summary */}
       {sumVol > 0 && (
         <Card className="bg-gradient-to-br from-[var(--color-accent-light)] to-white border-[var(--color-accent)]/20">
           <h2 className="text-sm font-bold mb-4">Solution Overview</h2>
