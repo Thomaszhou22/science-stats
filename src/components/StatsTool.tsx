@@ -67,6 +67,11 @@ export default function StatsTool() {
       prev.map((g) => (g.id === groupId ? { ...g, values: g.values.filter((_, i) => i !== idx) } : g))
     )
   }
+  function removeLastRow(groupId: string) {
+    setGroups((prev) =>
+      prev.map((g) => (g.id === groupId ? { ...g, values: g.values.slice(0, -1) } : g))
+    )
+  }
   function addGroup() {
     setGroups((prev) => [...prev, newGroup()])
   }
@@ -126,7 +131,10 @@ export default function StatsTool() {
             />
             <div className="flex items-center gap-1">
               <Button size="sm" variant="ghost" onClick={() => addRow(r.id)}>+ Data</Button>
-              <Button size="sm" variant="ghost" onClick={() => removeGroup(r.id)}>Remove</Button>
+              {r.values.length > 1 && (
+                <Button size="sm" variant="ghost" onClick={() => removeLastRow(r.id)}>- Data</Button>
+              )}
+              <Button size="sm" variant="danger" onClick={() => removeGroup(r.id)}>Delete Group</Button>
             </div>
           </div>
 
@@ -140,10 +148,10 @@ export default function StatsTool() {
                   placeholder={`#${idx + 1}`}
                   className="w-20 text-center text-sm font-mono border border-[var(--color-border)] rounded-lg px-2 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
                 />
-                {r.values.length > 2 && (
+                {r.values.length > 1 && (
                   <button
                     onClick={() => removeRow(r.id, idx)}
-                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-400 text-white text-[10px] leading-none opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center"
+                    className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-red-400 text-white text-[10px] leading-none opacity-60 hover:opacity-100 transition-opacity flex items-center justify-center"
                   >×</button>
                 )}
               </div>
