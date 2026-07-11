@@ -20,9 +20,9 @@ function newReagent(): Reagent {
 }
 
 const PRESETS = [
-  { name: 'F88DMA', concentration: '10 w/v%' },
-  { name: 'APS', concentration: '125mg / 0.5mL' },
-  { name: 'TEMED', concentration: '4 w/v%' },
+  { name: 'F88DMA', concentration: '' },
+  { name: 'APS', concentration: '' },
+  { name: 'TEMED', concentration: '' },
 ]
 
 function makePresets(): Reagent[] {
