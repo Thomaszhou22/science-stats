@@ -8,12 +8,31 @@ interface SampleGroup {
   values: string[]
 }
 
+// ── localStorage helpers ─────────────────────────
+
+interface SavedStatsEntry {
+  id: string
+  label: string
+  data: { name: string; unit: string; mean: string; std: string; sem: string; n: number }[]
+  ts: number
+}
+
+function loadStatsEntries(): SavedStatsEntry[] {
+  try {
+    const raw = localStorage.getItem('science-stats-saved')
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+function saveStatsEntries(entries: SavedStatsEntry[]) {
+  localStorage.setItem('science-stats-saved', JSON.stringify(entries))
+}
+
 let groupCounter = 0
 function newGroup(): SampleGroup {
   groupCounter++
   return {
     id: `g-${Date.now()}-${groupCounter}`,
-    name: `Sample ${groupCounter}`,
+    name: `Group ${groupCounter}`,
     unit: 'mm',
     values: ['', '', '', '', ''],
   }
@@ -32,11 +51,13 @@ function calcStats(values: number[]) {
 
 export default function StatsTool() {
   const [groups, setGroups] = useState<SampleGroup[]>([
-    { id: 'g-init-1', name: 'Sphere 1', unit: 'mm', values: ['', '', '', '', ''] },
-    { id: 'g-init-2', name: 'Sphere 2', unit: 'mm', values: ['', '', '', '', ''] },
-    { id: 'g-init-3', name: 'Sphere 3', unit: 'mm', values: ['', '', '', '', ''] },
+    { id: 'g-init-1', name: 'Group 1', unit: 'mm', values: ['', '', '', '', ''] },
+    { id: 'g-init-2', name: 'Group 2', unit: 'mm', values: ['', '', '', '', ''] },
+    { id: 'g-init-3', name: 'Group 3', unit: 'mm', values: ['', '', '', '', ''] },
   ])
   const [digits, setDigits] = useState(4)
+  const [savedEntries, setSavedEntries] = useState<SavedStatsEntry[]>(loadStatsEntries)
+  const [saveLabel, setSaveLabel] = useState('')
 
   const results = useMemo(() => {
     return groups.map((g) => {
@@ -50,6 +71,8 @@ export default function StatsTool() {
     if (allMeans.length === 0) return null
     return calcStats(allMeans)
   }, [results])
+
+  // ── Handlers ────────────────────────────────────
 
   function updateValue(groupId: string, idx: number, val: string) {
     setGroups((prev) =>
@@ -89,10 +112,47 @@ export default function StatsTool() {
   function clearAll() {
     groupCounter = 0
     setGroups([
-      { id: 'g-r1', name: 'Sphere 1', unit: 'mm', values: ['', '', '', '', ''] },
-      { id: 'g-r2', name: 'Sphere 2', unit: 'mm', values: ['', '', '', '', ''] },
-      { id: 'g-r3', name: 'Sphere 3', unit: 'mm', values: ['', '', '', '', ''] },
+      { id: 'g-r1', name: 'Group 1', unit: 'mm', values: ['', '', '', '', ''] },
+      { id: 'g-r2', name: 'Group 2', unit: 'mm', values: ['', '', '', '', ''] },
+      { id: 'g-r3', name: 'Group 3', unit: 'mm', values: ['', '', '', '', ''] },
     ])
+  }
+
+  // ── Save / Load ─────────────────────────────────
+
+  function handleSave() {
+    const data = results
+      .filter((r) => r.stats)
+      .map((r) => ({
+        name: r.name,
+        unit: r.unit,
+        mean: fmt(r.stats!.mean, digits),
+        std: fmt(r.stats!.std, digits),
+        sem: fmt(r.stats!.sem, digits),
+        n: r.stats!.n,
+      }))
+    if (data.length === 0) return
+    const entry: SavedStatsEntry = {
+      id: `s-${Date.now()}`,
+      label: saveLabel.trim() || `Saved ${new Date().toLocaleString()}`,
+      data,
+      ts: Date.now(),
+    }
+    const next = [entry, ...savedEntries]
+    setSavedEntries(next)
+    saveStatsEntries(next)
+    setSaveLabel('')
+  }
+
+  function deleteEntry(id: string) {
+    const next = savedEntries.filter((e) => e.id !== id)
+    setSavedEntries(next)
+    saveStatsEntries(next)
+  }
+
+  function clearEntries() {
+    setSavedEntries([])
+    saveStatsEntries([])
   }
 
   return (
@@ -138,7 +198,6 @@ export default function StatsTool() {
                 onChange={(e) => updateGroupName(r.id, e.target.value)}
                 className="text-sm font-semibold bg-transparent border-none outline-none focus:bg-gray-50 rounded px-2 py-1"
               />
-              {/* Unit input + apply-to-all button */}
               <div className="flex items-center gap-1">
                 <input
                   value={r.unit}
@@ -213,9 +272,68 @@ export default function StatsTool() {
         </Card>
       )}
 
-      <footer className="text-center text-xs text-[var(--color-muted)] pt-4 pb-8">
-        Sample standard deviation (N−1) · SEM = σ/√N
-      </footer>
+      {/* Save bar */}
+      <Card>
+        <div className="flex items-center gap-3 flex-wrap">
+          <input
+            value={saveLabel}
+            onChange={(e) => setSaveLabel(e.target.value)}
+            placeholder="Label (optional)"
+            className="flex-1 min-w-[160px] text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+          />
+          <Button onClick={handleSave}>Save Results</Button>
+        </div>
+      </Card>
+
+      {/* Saved entries */}
+      {savedEntries.length > 0 && (
+        <Card>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-bold">Saved Results</h2>
+            <button
+              onClick={clearEntries}
+              className="text-xs text-red-400 hover:text-red-600"
+            >Clear all</button>
+          </div>
+          <div className="space-y-4">
+            {savedEntries.map((e) => (
+              <div key={e.id} className="border border-[var(--color-border)] rounded-lg p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-semibold">{e.label}</span>
+                  <button
+                    onClick={() => deleteEntry(e.id)}
+                    className="text-xs text-[var(--color-muted)] hover:text-red-500"
+                  >Delete</button>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead>
+                      <tr className="border-b border-[var(--color-border)] text-[var(--color-muted)]">
+                        <th className="text-left py-1.5 pr-3">Group</th>
+                        <th className="text-right py-1.5 px-2">N</th>
+                        <th className="text-right py-1.5 px-2">Mean</th>
+                        <th className="text-right py-1.5 px-2">Std Dev</th>
+                        <th className="text-right py-1.5 px-2">SEM</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {e.data.map((d, i) => (
+                        <tr key={i} className="border-b border-[var(--color-border)] last:border-0">
+                          <td className="py-1.5 pr-3 font-medium">{d.name}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{d.n}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{d.mean} {d.unit}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{d.std} {d.unit}</td>
+                          <td className="py-1.5 px-2 text-right font-mono">{d.sem} {d.unit}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
     </div>
   )
 }
