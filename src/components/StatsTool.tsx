@@ -4,6 +4,7 @@ import { Card, Button, StatBox, fmt } from './ui'
 interface SampleGroup {
   id: string
   name: string
+  unit: string
   values: string[]
 }
 
@@ -13,6 +14,7 @@ function newGroup(): SampleGroup {
   return {
     id: `g-${Date.now()}-${groupCounter}`,
     name: `Sample ${groupCounter}`,
+    unit: 'mm',
     values: ['', '', '', '', ''],
   }
 }
@@ -30,9 +32,9 @@ function calcStats(values: number[]) {
 
 export default function StatsTool() {
   const [groups, setGroups] = useState<SampleGroup[]>([
-    { id: 'g-init-1', name: 'Sphere 1', values: ['', '', '', '', ''] },
-    { id: 'g-init-2', name: 'Sphere 2', values: ['', '', '', '', ''] },
-    { id: 'g-init-3', name: 'Sphere 3', values: ['', '', '', '', ''] },
+    { id: 'g-init-1', name: 'Sphere 1', unit: 'mm', values: ['', '', '', '', ''] },
+    { id: 'g-init-2', name: 'Sphere 2', unit: 'mm', values: ['', '', '', '', ''] },
+    { id: 'g-init-3', name: 'Sphere 3', unit: 'mm', values: ['', '', '', '', ''] },
   ])
   const [digits, setDigits] = useState(4)
 
@@ -59,6 +61,12 @@ export default function StatsTool() {
   function updateGroupName(groupId: string, name: string) {
     setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, name } : g)))
   }
+  function updateGroupUnit(groupId: string, unit: string) {
+    setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, unit } : g)))
+  }
+  function applyUnitToAll(unit: string) {
+    setGroups((prev) => prev.map((g) => ({ ...g, unit })))
+  }
   function addRow(groupId: string) {
     setGroups((prev) => prev.map((g) => (g.id === groupId ? { ...g, values: [...g.values, ''] } : g)))
   }
@@ -81,9 +89,9 @@ export default function StatsTool() {
   function clearAll() {
     groupCounter = 0
     setGroups([
-      { id: 'g-r1', name: 'Sphere 1', values: ['', '', '', '', ''] },
-      { id: 'g-r2', name: 'Sphere 2', values: ['', '', '', '', ''] },
-      { id: 'g-r3', name: 'Sphere 3', values: ['', '', '', '', ''] },
+      { id: 'g-r1', name: 'Sphere 1', unit: 'mm', values: ['', '', '', '', ''] },
+      { id: 'g-r2', name: 'Sphere 2', unit: 'mm', values: ['', '', '', '', ''] },
+      { id: 'g-r3', name: 'Sphere 3', unit: 'mm', values: ['', '', '', '', ''] },
     ])
   }
 
@@ -123,12 +131,28 @@ export default function StatsTool() {
 
       {results.map((r) => (
         <Card key={r.id}>
-          <div className="flex items-center justify-between mb-4">
-            <input
-              value={r.name}
-              onChange={(e) => updateGroupName(r.id, e.target.value)}
-              className="text-sm font-semibold bg-transparent border-none outline-none focus:bg-gray-50 rounded px-2 py-1 -ml-2 flex-1"
-            />
+          <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+            <div className="flex items-center gap-2 flex-1">
+              <input
+                value={r.name}
+                onChange={(e) => updateGroupName(r.id, e.target.value)}
+                className="text-sm font-semibold bg-transparent border-none outline-none focus:bg-gray-50 rounded px-2 py-1"
+              />
+              {/* Unit input + apply-to-all button */}
+              <div className="flex items-center gap-1">
+                <input
+                  value={r.unit}
+                  onChange={(e) => updateGroupUnit(r.id, e.target.value)}
+                  placeholder="unit"
+                  className="text-xs font-mono w-16 text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                />
+                <button
+                  onClick={() => applyUnitToAll(r.unit)}
+                  className="text-[10px] px-1.5 py-1 rounded-md border border-[var(--color-border)] bg-gray-50 hover:bg-[var(--color-accent-light)] hover:border-[var(--color-accent)]/30 hover:text-[var(--color-accent)] transition-all whitespace-nowrap"
+                  title="Apply this unit to all rows"
+                >Apply to all</button>
+              </div>
+            </div>
             <div className="flex items-center gap-1">
               <Button size="sm" variant="ghost" onClick={() => addRow(r.id)}>+ Data</Button>
               {r.values.length > 1 && (
@@ -161,9 +185,9 @@ export default function StatsTool() {
           {r.stats ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <StatBox label="Count N" value={`${r.stats.n}`} />
-              <StatBox label="Mean x̄" value={fmt(r.stats.mean, digits)} highlight />
-              <StatBox label="Std Dev σ" value={fmt(r.stats.std, digits)} />
-              <StatBox label="Std Err SEM" value={fmt(r.stats.sem, digits)} />
+              <StatBox label={`Mean x̄ (${r.unit})`} value={fmt(r.stats.mean, digits)} highlight />
+              <StatBox label={`Std Dev σ (${r.unit})`} value={fmt(r.stats.std, digits)} />
+              <StatBox label={`Std Err SEM (${r.unit})`} value={fmt(r.stats.sem, digits)} />
             </div>
           ) : (
             <p className="text-xs text-[var(--color-muted)]">Enter at least 1 data point</p>
