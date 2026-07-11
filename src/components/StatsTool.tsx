@@ -8,23 +8,43 @@ interface SampleGroup {
   values: string[]
 }
 
-// ── localStorage helpers ─────────────────────────
+// ── localStorage types ───────────────────────────
 
-interface SavedStatsEntry {
+interface SavedResult {
   id: string
-  label: string
-  data: { name: string; unit: string; mean: string; std: string; sem: string; n: number }[]
+  groupName: string
+  unit: string
+  mean: string
+  std: string
+  sem: string
+  n: number
+  ts: number
+  labelId: string | null
+}
+
+interface LabelItem {
+  id: string
+  name: string
   ts: number
 }
 
-function loadStatsEntries(): SavedStatsEntry[] {
+function loadResults(): SavedResult[] {
   try {
-    const raw = localStorage.getItem('science-stats-saved')
+    const raw = localStorage.getItem('science-stats-results')
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
-function saveStatsEntries(entries: SavedStatsEntry[]) {
-  localStorage.setItem('science-stats-saved', JSON.stringify(entries))
+function saveResults(v: SavedResult[]) {
+  localStorage.setItem('science-stats-results', JSON.stringify(v))
+}
+function loadLabels(): LabelItem[] {
+  try {
+    const raw = localStorage.getItem('science-stats-labels')
+    return raw ? JSON.parse(raw) : []
+  } catch { return [] }
+}
+function saveLabels(v: LabelItem[]) {
+  localStorage.setItem('science-stats-labels', JSON.stringify(v))
 }
 
 let groupCounter = 0
@@ -56,10 +76,18 @@ export default function StatsTool() {
     { id: 'g-init-3', name: 'Group 3', unit: 'mm', values: ['', '', '', '', ''] },
   ])
   const [digits, setDigits] = useState(4)
-  const [savedEntries, setSavedEntries] = useState<SavedStatsEntry[]>(loadStatsEntries)
-  const [saveLabel, setSaveLabel] = useState('')
 
-  const results = useMemo(() => {
+  // Saved results & labels
+  const [results, setResults] = useState<SavedResult[]>(loadResults)
+  const [labels, setLabels] = useState<LabelItem[]>(loadLabels)
+  const [showResults, setShowResults] = useState(false)
+
+  // Modal state
+  const [newLabelName, setNewLabelName] = useState('')
+  const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(new Set())
+  const [assignLabelId, setAssignLabelId] = useState<string>('')
+
+  const computed = useMemo(() => {
     return groups.map((g) => {
       const nums = g.values.map((v) => parseFloat(v)).filter((v) => !isNaN(v))
       return { ...g, stats: calcStats(nums) }
@@ -67,12 +95,12 @@ export default function StatsTool() {
   }, [groups])
 
   const summary = useMemo(() => {
-    const allMeans = results.filter((r) => r.stats).map((r) => r.stats!.mean)
+    const allMeans = computed.filter((r) => r.stats).map((r) => r.stats!.mean)
     if (allMeans.length === 0) return null
     return calcStats(allMeans)
-  }, [results])
+  }, [computed])
 
-  // ── Handlers ────────────────────────────────────
+  // ── Group handlers ──────────────────────────────
 
   function updateValue(groupId: string, idx: number, val: string) {
     setGroups((prev) =>
@@ -118,45 +146,108 @@ export default function StatsTool() {
     ])
   }
 
-  // ── Save / Load ─────────────────────────────────
+  // ── Add single group to results ─────────────────
 
-  function handleSave() {
-    const data = results
-      .filter((r) => r.stats)
-      .map((r) => ({
-        name: r.name,
-        unit: r.unit,
-        mean: fmt(r.stats!.mean, digits),
-        std: fmt(r.stats!.std, digits),
-        sem: fmt(r.stats!.sem, digits),
-        n: r.stats!.n,
-      }))
-    if (data.length === 0) return
-    const entry: SavedStatsEntry = {
-      id: `s-${Date.now()}`,
-      label: saveLabel.trim() || `Saved ${new Date().toLocaleString()}`,
-      data,
+  function addToResults(groupId: string) {
+    const g = computed.find((r) => r.id === groupId)
+    if (!g || !g.stats) return
+    const entry: SavedResult = {
+      id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      groupName: g.name,
+      unit: g.unit,
+      mean: fmt(g.stats.mean, digits),
+      std: fmt(g.stats.std, digits),
+      sem: fmt(g.stats.sem, digits),
+      n: g.stats.n,
+      ts: Date.now(),
+      labelId: null,
+    }
+    const next = [entry, ...results]
+    setResults(next)
+    saveResults(next)
+  }
+
+  // ── Result handlers ─────────────────────────────
+
+  function deleteResult(id: string) {
+    const next = results.filter((r) => r.id !== id)
+    setResults(next)
+    saveResults(next)
+    setSelectedResultIds((prev) => {
+      const n = new Set(prev)
+      n.delete(id)
+      return n
+    })
+  }
+
+  function clearAllResults() {
+    setResults([])
+    saveResults([])
+    setSelectedResultIds(new Set())
+  }
+
+  // ── Label handlers ──────────────────────────────
+
+  function createLabel() {
+    const name = newLabelName.trim()
+    if (!name) return
+    const lbl: LabelItem = {
+      id: `l-${Date.now()}`,
+      name,
       ts: Date.now(),
     }
-    const next = [entry, ...savedEntries]
-    setSavedEntries(next)
-    saveStatsEntries(next)
-    setSaveLabel('')
+    const next = [...labels, lbl]
+    setLabels(next)
+    saveLabels(next)
+    setNewLabelName('')
   }
 
-  function deleteEntry(id: string) {
-    const next = savedEntries.filter((e) => e.id !== id)
-    setSavedEntries(next)
-    saveStatsEntries(next)
+  function deleteLabel(id: string) {
+    const next = labels.filter((l) => l.id !== id)
+    setLabels(next)
+    saveLabels(next)
+    // Unassign results that had this label
+    const updated = results.map((r) => (r.labelId === id ? { ...r, labelId: null } : r))
+    setResults(updated)
+    saveResults(updated)
   }
 
-  function clearEntries() {
-    setSavedEntries([])
-    saveStatsEntries([])
+  function renameLabel(id: string, name: string) {
+    const next = labels.map((l) => (l.id === id ? { ...l, name } : l))
+    setLabels(next)
+    saveLabels(next)
   }
+
+  function assignSelectedToLabel() {
+    if (!assignLabelId || selectedResultIds.size === 0) return
+    const updated = results.map((r) =>
+      selectedResultIds.has(r.id) ? { ...r, labelId: assignLabelId } : r
+    )
+    setResults(updated)
+    saveResults(updated)
+    setSelectedResultIds(new Set())
+    setAssignLabelId('')
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedResultIds((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+
+  // ── Grouped results for modal ───────────────────
+
+  const unlabeledResults = results.filter((r) => !r.labelId)
+  const labeledGroups = labels.map((lbl) => ({
+    label: lbl,
+    items: results.filter((r) => r.labelId === lbl.id),
+  })).filter((g) => g.items.length > 0)
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 relative">
       {/* Formula reference */}
       <Card className="bg-[var(--color-accent-light)] border-[var(--color-accent)]/20">
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
@@ -175,21 +266,36 @@ export default function StatsTool() {
         </div>
       </Card>
 
-      {/* Decimal selector */}
-      <div className="flex items-center justify-end gap-2">
-        <label className="text-xs text-[var(--color-muted)]">Decimals</label>
-        <select
-          value={digits}
-          onChange={(e) => setDigits(Number(e.target.value))}
-          className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+      {/* Top bar: decimals + results button */}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <label className="text-xs text-[var(--color-muted)]">Decimals</label>
+          <select
+            value={digits}
+            onChange={(e) => setDigits(Number(e.target.value))}
+            className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+          >
+            {[2, 3, 4, 5, 6].map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+        <Button
+          variant="outline"
+          onClick={() => setShowResults(true)}
+          className="relative"
         >
-          {[2, 3, 4, 5, 6].map((d) => (
-            <option key={d} value={d}>{d}</option>
-          ))}
-        </select>
+          Results
+          {results.length > 0 && (
+            <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-[var(--color-accent)] text-white">
+              {results.length}
+            </span>
+          )}
+        </Button>
       </div>
 
-      {results.map((r) => (
+      {/* Group cards */}
+      {computed.map((r) => (
         <Card key={r.id}>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-1">
@@ -217,7 +323,16 @@ export default function StatsTool() {
               {r.values.length > 1 && (
                 <Button size="sm" variant="ghost" onClick={() => removeLastRow(r.id)}>- Data</Button>
               )}
-              <Button size="sm" variant="danger" onClick={() => removeGroup(r.id)}>Delete Group</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => addToResults(r.id)}
+                disabled={!r.stats}
+                className={!r.stats ? 'opacity-40 cursor-not-allowed' : ''}
+              >
+                + Add to Results
+              </Button>
+              <Button size="sm" variant="danger" onClick={() => removeGroup(r.id)}>Delete</Button>
             </div>
           </div>
 
@@ -272,68 +387,210 @@ export default function StatsTool() {
         </Card>
       )}
 
-      {/* Save bar */}
-      <Card>
-        <div className="flex items-center gap-3 flex-wrap">
-          <input
-            value={saveLabel}
-            onChange={(e) => setSaveLabel(e.target.value)}
-            placeholder="Label (optional)"
-            className="flex-1 min-w-[160px] text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
-          />
-          <Button onClick={handleSave}>Save Results</Button>
-        </div>
-      </Card>
-
-      {/* Saved entries */}
-      {savedEntries.length > 0 && (
-        <Card>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-sm font-bold">Saved Results</h2>
-            <button
-              onClick={clearEntries}
-              className="text-xs text-red-400 hover:text-red-600"
-            >Clear all</button>
-          </div>
-          <div className="space-y-4">
-            {savedEntries.map((e) => (
-              <div key={e.id} className="border border-[var(--color-border)] rounded-lg p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-semibold">{e.label}</span>
+      {/* ── Results Modal ─────────────────────────── */}
+      {showResults && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowResults(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Modal header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+              <h2 className="text-base font-bold">Saved Results</h2>
+              <div className="flex items-center gap-2">
+                {results.length > 0 && (
                   <button
-                    onClick={() => deleteEntry(e.id)}
-                    className="text-xs text-[var(--color-muted)] hover:text-red-500"
-                  >Delete</button>
-                </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-[var(--color-border)] text-[var(--color-muted)]">
-                        <th className="text-left py-1.5 pr-3">Group</th>
-                        <th className="text-right py-1.5 px-2">N</th>
-                        <th className="text-right py-1.5 px-2">Mean</th>
-                        <th className="text-right py-1.5 px-2">Std Dev</th>
-                        <th className="text-right py-1.5 px-2">SEM</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {e.data.map((d, i) => (
-                        <tr key={i} className="border-b border-[var(--color-border)] last:border-0">
-                          <td className="py-1.5 pr-3 font-medium">{d.name}</td>
-                          <td className="py-1.5 px-2 text-right font-mono">{d.n}</td>
-                          <td className="py-1.5 px-2 text-right font-mono">{d.mean} {d.unit}</td>
-                          <td className="py-1.5 px-2 text-right font-mono">{d.std} {d.unit}</td>
-                          <td className="py-1.5 px-2 text-right font-mono">{d.sem} {d.unit}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                    onClick={clearAllResults}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >Clear all</button>
+                )}
+                <button
+                  onClick={() => setShowResults(false)}
+                  className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-[var(--color-muted)] text-lg"
+                >×</button>
               </div>
-            ))}
+            </div>
+
+            {/* Modal body */}
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+              {results.length === 0 ? (
+                <div className="text-center py-16 text-[var(--color-muted)]">
+                  <p className="text-sm">No saved results yet</p>
+                  <p className="text-xs mt-1">Click <span className="font-medium">+ Add to Results</span> on any group to save its stats</p>
+                </div>
+              ) : (
+                <>
+                  {/* Create label + assign bar */}
+                  <div className="flex items-center gap-2 flex-wrap p-3 bg-gray-50 rounded-xl border border-[var(--color-border)]">
+                    <input
+                      value={newLabelName}
+                      onChange={(e) => setNewLabelName(e.target.value)}
+                      onKeyDown={(e) => e.key === 'Enter' && createLabel()}
+                      placeholder="New label name..."
+                      className="flex-1 min-w-[140px] text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                    />
+                    <Button size="sm" variant="outline" onClick={createLabel} disabled={!newLabelName.trim()}>
+                      + Create Label
+                    </Button>
+                    <div className="w-px h-6 bg-[var(--color-border)] mx-1" />
+                    {selectedResultIds.size > 0 && (
+                      <>
+                        <span className="text-xs text-[var(--color-muted)]">{selectedResultIds.size} selected</span>
+                        <select
+                          value={assignLabelId}
+                          onChange={(e) => setAssignLabelId(e.target.value)}
+                          className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                        >
+                          <option value="">Assign to...</option>
+                          {labels.map((l) => (
+                            <option key={l.id} value={l.id}>{l.name}</option>
+                          ))}
+                        </select>
+                        <Button size="sm" onClick={assignSelectedToLabel} disabled={!assignLabelId}>
+                          Assign
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Unlabeled results */}
+                  {unlabeledResults.length > 0 && (
+                    <ResultSection
+                      title="Unlabeled"
+                      items={unlabeledResults}
+                      selectedIds={selectedResultIds}
+                      onToggle={toggleSelect}
+                      onDelete={deleteResult}
+                    />
+                  )}
+
+                  {/* Labeled groups */}
+                  {labeledGroups.map(({ label, items }) => (
+                    <ResultSection
+                      key={label.id}
+                      title={label.name}
+                      labelId={label.id}
+                      items={items}
+                      selectedIds={selectedResultIds}
+                      onToggle={toggleSelect}
+                      onDelete={deleteResult}
+                      onRenameLabel={(name) => renameLabel(label.id, name)}
+                      onDeleteLabel={() => deleteLabel(label.id)}
+                    />
+                  ))}
+                </>
+              )}
+            </div>
           </div>
-        </Card>
+        </div>
       )}
+    </div>
+  )
+}
+
+// ── Result Section component ──────────────────────
+
+function ResultSection({
+  title,
+  items,
+  selectedIds,
+  onToggle,
+  onDelete,
+  labelId,
+  onRenameLabel,
+  onDeleteLabel,
+}: {
+  title: string
+  items: SavedResult[]
+  selectedIds: Set<string>
+  onToggle: (id: string) => void
+  onDelete: (id: string) => void
+  labelId?: string
+  onRenameLabel?: (name: string) => void
+  onDeleteLabel?: () => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [name, setName] = useState(title)
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        {labelId && editing ? (
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onBlur={() => {
+              setEditing(false)
+              if (onRenameLabel && name.trim()) onRenameLabel(name.trim())
+              else setName(title)
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                setEditing(false)
+                if (onRenameLabel && name.trim()) onRenameLabel(name.trim())
+              }
+              if (e.key === 'Escape') {
+                setName(title)
+                setEditing(false)
+              }
+            }}
+            autoFocus
+            className="text-sm font-bold bg-transparent border-b border-[var(--color-accent)] outline-none px-1"
+          />
+        ) : (
+          <h3
+            className={`text-sm font-bold ${labelId ? 'cursor-pointer hover:text-[var(--color-accent)]' : 'text-[var(--color-muted)]'}`}
+            onClick={() => labelId && setEditing(true)}
+          >
+            {title}
+            <span className="ml-2 text-xs font-normal text-[var(--color-muted)]">{items.length}</span>
+          </h3>
+        )}
+        {labelId && onDeleteLabel && (
+          <button
+            onClick={onDeleteLabel}
+            className="text-xs text-[var(--color-muted)] hover:text-red-500"
+          >Remove label</button>
+        )}
+      </div>
+      <div className="space-y-2">
+        {items.map((r) => (
+          <div
+            key={r.id}
+            className={`flex items-center gap-3 rounded-lg border p-2.5 transition-all cursor-pointer ${
+              selectedIds.has(r.id)
+                ? 'border-[var(--color-accent)] bg-[var(--color-accent-light)]/50'
+                : 'border-[var(--color-border)] hover:bg-gray-50'
+            }`}
+            onClick={() => onToggle(r.id)}
+          >
+            <input
+              type="checkbox"
+              checked={selectedIds.has(r.id)}
+              onChange={() => onToggle(r.id)}
+              className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+              onClick={(e) => e.stopPropagation()}
+            />
+            <div className="flex-1 grid grid-cols-5 gap-2 text-xs">
+              <span className="font-semibold">{r.groupName}</span>
+              <span className="text-right font-mono text-[var(--color-muted)]">N={r.n}</span>
+              <span className="text-right font-mono">{r.mean} {r.unit}</span>
+              <span className="text-right font-mono text-[var(--color-muted)]">σ={r.std}</span>
+              <span className="text-right font-mono text-[var(--color-muted)]">SEM={r.sem}</span>
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation()
+                onDelete(r.id)
+              }}
+              className="text-[var(--color-muted)] hover:text-red-500 text-sm px-1"
+            >×</button>
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

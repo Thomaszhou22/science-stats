@@ -16,12 +16,14 @@ export function Button({
   variant = 'default',
   size = 'md',
   className = '',
+  disabled = false,
 }: {
   children: React.ReactNode
   onClick?: () => void
   variant?: 'default' | 'outline' | 'ghost' | 'danger'
   size?: 'sm' | 'md'
   className?: string
+  disabled?: boolean
 }) {
   const base = 'inline-flex items-center justify-center font-medium rounded-lg transition-colors cursor-pointer select-none'
   const sizes = { sm: 'text-xs px-3 py-1.5', md: 'text-sm px-4 py-2' }
@@ -32,7 +34,11 @@ export function Button({
     danger: 'text-red-500 hover:bg-red-50',
   }
   return (
-    <button className={`${base} ${sizes[size]} ${variants[variant]} ${className}`} onClick={onClick}>
+    <button
+      className={`${base} ${sizes[size]} ${variants[variant]} ${disabled ? 'opacity-40 cursor-not-allowed pointer-events-none' : ''} ${className}`}
+      onClick={onClick}
+      disabled={disabled}
+    >
       {children}
     </button>
   )
