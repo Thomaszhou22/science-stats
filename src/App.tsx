@@ -8,8 +8,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('stats')
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
-    { key: 'stats', label: '数据统计', icon: 'σ' },
-    { key: 'solution', label: '溶液配制', icon: '⚗' },
+    { key: 'stats', label: 'Statistics', icon: 'σ' },
+    { key: 'solution', label: 'Solution Prep', icon: '⚗' },
   ]
 
   return (
@@ -18,7 +18,7 @@ export default function App() {
       <header className="border-b border-[var(--color-border)] bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-3">
-            <h1 className="text-lg font-bold tracking-tight">科研数据处理工具</h1>
+            <h1 className="text-lg font-bold tracking-tight">Science Stats Lab</h1>
           </div>
           {/* Tab bar */}
           <div className="flex gap-1 -mb-4">

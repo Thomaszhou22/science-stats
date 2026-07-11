@@ -12,7 +12,7 @@ function newGroup(): SampleGroup {
   groupCounter++
   return {
     id: `g-${Date.now()}-${groupCounter}`,
-    name: `样品 ${groupCounter}`,
+    name: `Sample ${groupCounter}`,
     values: ['', '', '', '', ''],
   }
 }
@@ -30,9 +30,9 @@ function calcStats(values: number[]) {
 
 export default function StatsTool() {
   const [groups, setGroups] = useState<SampleGroup[]>([
-    { id: 'g-init-1', name: '小球 1', values: ['', '', '', '', ''] },
-    { id: 'g-init-2', name: '小球 2', values: ['', '', '', '', ''] },
-    { id: 'g-init-3', name: '小球 3', values: ['', '', '', '', ''] },
+    { id: 'g-init-1', name: 'Sphere 1', values: ['', '', '', '', ''] },
+    { id: 'g-init-2', name: 'Sphere 2', values: ['', '', '', '', ''] },
+    { id: 'g-init-3', name: 'Sphere 3', values: ['', '', '', '', ''] },
   ])
   const [digits, setDigits] = useState(4)
 
@@ -76,9 +76,9 @@ export default function StatsTool() {
   function clearAll() {
     groupCounter = 0
     setGroups([
-      { id: 'g-r1', name: '小球 1', values: ['', '', '', '', ''] },
-      { id: 'g-r2', name: '小球 2', values: ['', '', '', '', ''] },
-      { id: 'g-r3', name: '小球 3', values: ['', '', '', '', ''] },
+      { id: 'g-r1', name: 'Sphere 1', values: ['', '', '', '', ''] },
+      { id: 'g-r2', name: 'Sphere 2', values: ['', '', '', '', ''] },
+      { id: 'g-r3', name: 'Sphere 3', values: ['', '', '', '', ''] },
     ])
   }
 
@@ -88,15 +88,15 @@ export default function StatsTool() {
       <Card className="bg-[var(--color-accent-light)] border-[var(--color-accent)]/20">
         <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
           <div>
-            <span className="text-[var(--color-muted)]">平均值</span>
+            <span className="text-[var(--color-muted)]">Mean</span>
             <span className="ml-2 font-mono">x̄ = (Σxᵢ) / N</span>
           </div>
           <div>
-            <span className="text-[var(--color-muted)]">标准差</span>
+            <span className="text-[var(--color-muted)]">Std Dev</span>
             <span className="ml-2 font-mono">σ = √[ Σ(xᵢ − x̄)² / (N−1) ]</span>
           </div>
           <div>
-            <span className="text-[var(--color-muted)]">标准误</span>
+            <span className="text-[var(--color-muted)]">Std Error</span>
             <span className="ml-2 font-mono">SEM = σ / √N</span>
           </div>
         </div>
@@ -104,14 +104,14 @@ export default function StatsTool() {
 
       {/* Decimal selector */}
       <div className="flex items-center justify-end gap-2">
-        <label className="text-xs text-[var(--color-muted)]">保留小数</label>
+        <label className="text-xs text-[var(--color-muted)]">Decimals</label>
         <select
           value={digits}
           onChange={(e) => setDigits(Number(e.target.value))}
           className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
         >
           {[2, 3, 4, 5, 6].map((d) => (
-            <option key={d} value={d}>{d} 位</option>
+            <option key={d} value={d}>{d}</option>
           ))}
         </select>
       </div>
@@ -125,8 +125,8 @@ export default function StatsTool() {
               className="text-sm font-semibold bg-transparent border-none outline-none focus:bg-gray-50 rounded px-2 py-1 -ml-2 flex-1"
             />
             <div className="flex items-center gap-1">
-              <Button size="sm" variant="ghost" onClick={() => addRow(r.id)}>+ 数据</Button>
-              <Button size="sm" variant="ghost" onClick={() => removeGroup(r.id)}>删除组</Button>
+              <Button size="sm" variant="ghost" onClick={() => addRow(r.id)}>+ Data</Button>
+              <Button size="sm" variant="ghost" onClick={() => removeGroup(r.id)}>Remove</Button>
             </div>
           </div>
 
@@ -152,37 +152,37 @@ export default function StatsTool() {
 
           {r.stats ? (
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <StatBox label="数据数 N" value={`${r.stats.n}`} />
-              <StatBox label="平均值 x̄" value={fmt(r.stats.mean, digits)} highlight />
-              <StatBox label="标准差 σ" value={fmt(r.stats.std, digits)} />
-              <StatBox label="标准误 SEM" value={fmt(r.stats.sem, digits)} />
+              <StatBox label="Count N" value={`${r.stats.n}`} />
+              <StatBox label="Mean x̄" value={fmt(r.stats.mean, digits)} highlight />
+              <StatBox label="Std Dev σ" value={fmt(r.stats.std, digits)} />
+              <StatBox label="Std Err SEM" value={fmt(r.stats.sem, digits)} />
             </div>
           ) : (
-            <p className="text-xs text-[var(--color-muted)]">输入至少 1 个数据点</p>
+            <p className="text-xs text-[var(--color-muted)]">Enter at least 1 data point</p>
           )}
         </Card>
       ))}
 
       <div className="flex justify-center gap-3">
-        <Button variant="outline" onClick={addGroup}>+ 添加样品组</Button>
-        <Button variant="ghost" onClick={clearAll}>清空所有</Button>
+        <Button variant="outline" onClick={addGroup}>+ Add Sample Group</Button>
+        <Button variant="ghost" onClick={clearAll}>Clear All</Button>
       </div>
 
       {summary && summary.n >= 2 && (
         <Card className="bg-gradient-to-br from-[var(--color-accent-light)] to-white border-[var(--color-accent)]/20">
-          <h2 className="text-sm font-bold mb-1">组间汇总</h2>
-          <p className="text-xs text-[var(--color-muted)] mb-4">对各组分平均值再次计算统计</p>
+          <h2 className="text-sm font-bold mb-1">Cross-Group Summary</h2>
+          <p className="text-xs text-[var(--color-muted)] mb-4">Statistics computed across group means</p>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatBox label="组数" value={`${summary.n}`} />
-            <StatBox label="总平均值" value={fmt(summary.mean, digits)} highlight />
-            <StatBox label="组间标准差" value={fmt(summary.std, digits)} />
-            <StatBox label="组间标准误" value={fmt(summary.sem, digits)} />
+            <StatBox label="Groups" value={`${summary.n}`} />
+            <StatBox label="Grand Mean" value={fmt(summary.mean, digits)} highlight />
+            <StatBox label="Inter-Group σ" value={fmt(summary.std, digits)} />
+            <StatBox label="Inter-Group SEM" value={fmt(summary.sem, digits)} />
           </div>
         </Card>
       )}
 
       <footer className="text-center text-xs text-[var(--color-muted)] pt-4 pb-8">
-        标准差使用样本标准差（N−1）· 标准误 SEM = σ/√N
+        Sample standard deviation (N−1) · SEM = σ/√N
       </footer>
     </div>
   )
