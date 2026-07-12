@@ -5,7 +5,17 @@ import SolutionTool from './components/SolutionTool'
 type Tab = 'stats' | 'solution'
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('stats')
+  const [tab, setTab] = useState<Tab>(() => {
+    try {
+      const saved = localStorage.getItem('science-stats-tab') as Tab | null
+      return saved === 'stats' || saved === 'solution' ? saved : 'stats'
+    } catch { return 'stats' }
+  })
+
+  function switchTab(t: Tab) {
+    setTab(t)
+    try { localStorage.setItem('science-stats-tab', t) } catch {}
+  }
 
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: 'stats', label: 'Statistics', icon: 'σ' },
@@ -25,7 +35,7 @@ export default function App() {
             {tabs.map((t) => (
               <button
                 key={t.key}
-                onClick={() => setTab(t.key)}
+                onClick={() => switchTab(t.key)}
                 className={`flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-t-lg border-b-2 transition-all ${
                   tab === t.key
                     ? 'border-[var(--color-accent)] text-[var(--color-accent)] bg-[var(--color-accent-light)]/50'
