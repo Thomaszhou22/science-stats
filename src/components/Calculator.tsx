@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Card } from './ui'
 
 // ── Safe expression evaluator ────────────────────
@@ -25,35 +25,67 @@ function evaluate(expr: string): number {
 const GEOMETRY_FORMULAS = [
   {
     id: 'circle-area',
-    name: 'Circle Area',
+    name: 'Circle Area (r)',
     icon: '◯',
     inputs: [{ label: 'Radius r', default: '' }],
     unit: '²',
     calc: (v: number[]) => Math.PI * v[0] ** 2,
   },
   {
+    id: 'circle-area-d',
+    name: 'Circle Area (d)',
+    icon: '◯',
+    inputs: [{ label: 'Diameter d', default: '' }],
+    unit: '²',
+    calc: (v: number[]) => Math.PI * (v[0] / 2) ** 2,
+  },
+  {
     id: 'circle-perim',
-    name: 'Circle Perimeter',
+    name: 'Circle Perimeter (r)',
     icon: '◯',
     inputs: [{ label: 'Radius r', default: '' }],
     unit: '',
     calc: (v: number[]) => 2 * Math.PI * v[0],
   },
   {
+    id: 'circle-perim-d',
+    name: 'Circle Perimeter (d)',
+    icon: '◯',
+    inputs: [{ label: 'Diameter d', default: '' }],
+    unit: '',
+    calc: (v: number[]) => Math.PI * v[0],
+  },
+  {
     id: 'sphere-sa',
-    name: 'Sphere Surface Area',
+    name: 'Sphere Surface Area (r)',
     icon: '⬤',
     inputs: [{ label: 'Radius r', default: '' }],
     unit: '²',
     calc: (v: number[]) => 4 * Math.PI * v[0] ** 2,
   },
   {
+    id: 'sphere-sa-d',
+    name: 'Sphere Surface Area (d)',
+    icon: '⬤',
+    inputs: [{ label: 'Diameter d', default: '' }],
+    unit: '²',
+    calc: (v: number[]) => Math.PI * v[0] ** 2,
+  },
+  {
     id: 'sphere-vol',
-    name: 'Sphere Volume',
+    name: 'Sphere Volume (r)',
     icon: '⬤',
     inputs: [{ label: 'Radius r', default: '' }],
     unit: '³',
     calc: (v: number[]) => (4 / 3) * Math.PI * v[0] ** 3,
+  },
+  {
+    id: 'sphere-vol-d',
+    name: 'Sphere Volume (d)',
+    icon: '⬤',
+    inputs: [{ label: 'Diameter d', default: '' }],
+    unit: '³',
+    calc: (v: number[]) => (1 / 6) * Math.PI * v[0] ** 3,
   },
   {
     id: 'cylinder-vol',
@@ -124,13 +156,29 @@ const GEOMETRY_FORMULAS = [
 // ── Calculator component ─────────────────────────
 
 export default function Calculator() {
-  const [expr, setExpr] = useState('')
-  const [history, setHistory] = useState<{ expr: string; result: string }[]>([])
-  const [digits, setDigits] = useState(6)
+  const [expr, setExpr] = useState(() => {
+    try { return localStorage.getItem('calc-expr') || '' } catch { return '' }
+  })
+  const [history, setHistory] = useState<{ expr: string; result: string }[]>(() => {
+    try { const raw = localStorage.getItem('calc-history'); return raw ? JSON.parse(raw) : [] } catch { return [] }
+  })
+  const [digits, setDigits] = useState(() => {
+    try { const raw = localStorage.getItem('calc-digits'); return raw ? JSON.parse(raw) : 6 } catch { return 6 }
+  })
 
   // Geometry state
-  const [geoInputs, setGeoInputs] = useState<Record<string, string[]>>({})
-  const [activeGeo, setActiveGeo] = useState(GEOMETRY_FORMULAS[0].id)
+  const [geoInputs, setGeoInputs] = useState<Record<string, string[]>>(() => {
+    try { const raw = localStorage.getItem('calc-geo-inputs'); return raw ? JSON.parse(raw) : {} } catch { return {} }
+  })
+  const [activeGeo, setActiveGeo] = useState(() => {
+    try { return localStorage.getItem('calc-active-geo') || GEOMETRY_FORMULAS[0].id } catch { return GEOMETRY_FORMULAS[0].id }
+  })
+
+  useEffect(() => { localStorage.setItem('calc-expr', expr) }, [expr])
+  useEffect(() => { localStorage.setItem('calc-history', JSON.stringify(history)) }, [history])
+  useEffect(() => { localStorage.setItem('calc-digits', JSON.stringify(digits)) }, [digits])
+  useEffect(() => { localStorage.setItem('calc-geo-inputs', JSON.stringify(geoInputs)) }, [geoInputs])
+  useEffect(() => { localStorage.setItem('calc-active-geo', activeGeo) }, [activeGeo])
 
   const result = useMemo(() => {
     if (!expr.trim()) return ''
