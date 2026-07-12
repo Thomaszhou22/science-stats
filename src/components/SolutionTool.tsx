@@ -87,7 +87,7 @@ function useArrowNav() {
     const target = document.querySelector(`input[data-row="${nr}"][data-col="${nc}"]`) as HTMLInputElement | null
     if (target) {
       target.focus()
-      // Place cursor at end
+      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
       requestAnimationFrame(() => target.select())
     }
   }, [])

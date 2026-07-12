@@ -46,7 +46,11 @@ function useArrowNav() {
     else if (key === 'ArrowRight') nv++
     else if (key === 'ArrowLeft') nv = Math.max(0, valIdx - 1)
     const target = document.querySelector(`input[data-grp="${ng}"][data-vidx="${nv}"]`) as HTMLInputElement | null
-    if (target) { target.focus(); requestAnimationFrame(() => target.select()) }
+    if (target) {
+      target.focus()
+      target.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+      requestAnimationFrame(() => target.select())
+    }
   }, [])
 }
 
