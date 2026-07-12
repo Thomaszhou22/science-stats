@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Card, Button, StatBox, fmt } from './ui'
+import { UnitPicker } from './UnitPicker'
 
 interface SampleGroup {
   id: string
@@ -499,10 +500,9 @@ export default function StatsTool() {
                 className="text-sm font-semibold bg-transparent border-none outline-none focus:bg-gray-50 rounded px-2 py-1"
               />
               <div className="flex items-center gap-1">
-                <input
+                <UnitPicker
                   value={r.unit}
-                  onChange={(e) => updateGroupUnit(r.id, e.target.value)}
-                  placeholder="unit"
+                  onChange={(v) => updateGroupUnit(r.id, v)}
                   className="text-xs font-mono w-16 text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
                 />
                 <button
