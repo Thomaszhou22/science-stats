@@ -13,16 +13,27 @@ interface SampleGroup {
 
 // ── localStorage types ───────────────────────────
 
-interface SavedResult {
-  id: string
-  groupName: string
+/** One group's stats snapshot inside an experiment */
+interface GroupStat {
+  name: string
   unit: string
-  mean: string
-  std: string
-  sem: string
+  mean: number
+  std: number
+  sem: number
   n: number
+}
+
+/** A complete experiment entry saved to results */
+interface ExperimentEntry {
+  id: string
+  label: string
+  concentration: string
+  concUnit: string
+  groups: GroupStat[]
+  crossGroup: { mean: number; std: number; sem: number; n: number } | null
+  measurementUnit: string
   ts: number
-  labelId: string | null
+  savedLabelId: string | null
 }
 
 interface LabelItem {
@@ -31,13 +42,13 @@ interface LabelItem {
   ts: number
 }
 
-function loadResults(): SavedResult[] {
+function loadResults(): ExperimentEntry[] {
   try {
     const raw = localStorage.getItem('science-stats-results')
     return raw ? JSON.parse(raw) : []
   } catch { return [] }
 }
-function saveResults(v: SavedResult[]) {
+function saveResults(v: ExperimentEntry[]) {
   localStorage.setItem('science-stats-results', JSON.stringify(v))
 }
 function loadLabels(): LabelItem[] {
@@ -116,8 +127,19 @@ export default function StatsTool() {
   const [groups, setGroups] = useState<SampleGroup[]>(loadGroups)
   const [digits, setDigits] = useState(loadDigits)
 
+  // Experiment metadata
+  const [expLabel, setExpLabel] = useState(() => {
+    try { return localStorage.getItem('science-stats-exp-label') || '' } catch { return '' }
+  })
+  const [concentration, setConcentration] = useState(() => {
+    try { return localStorage.getItem('science-stats-conc') || '' } catch { return '' }
+  })
+  const [concUnit, setConcUnit] = useState(() => {
+    try { return localStorage.getItem('science-stats-conc-unit') || 'mol/L' } catch { return 'mol/L' }
+  })
+
   // Saved results & labels
-  const [results, setResults] = useState<SavedResult[]>(loadResults)
+  const [results, setResults] = useState<ExperimentEntry[]>(loadResults)
   const [labels, setLabels] = useState<LabelItem[]>(loadLabels)
   const [showResults, setShowResults] = useState(false)
 
@@ -126,12 +148,11 @@ export default function StatsTool() {
   const [selectedResultIds, setSelectedResultIds] = useState<Set<string>>(new Set())
   const [assignLabelId, setAssignLabelId] = useState<string>('')
 
-  // Export selection: which sections (labels + unlabeled) to include in PDF
-  const [exportSelection, setExportSelection] = useState<Set<string>>(new Set()) // '__unlabeled__' or label.id
+  // Export selection
+  const [exportSelection, setExportSelection] = useState<Set<string>>(new Set())
 
-  // Cross-group analysis: select groups to compute mean/SD/SEM across their means
+  // Cross-group analysis
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
-  const [showAnalysis, setShowAnalysis] = useState(false)
 
   const onArrow = useArrowNav()
 
@@ -149,12 +170,21 @@ export default function StatsTool() {
     return { ...calcStats(means)!, groupNames: selected.map((r) => r.name) }
   }, [computed, selectedGroupIds])
 
+  const validGroups = computed.filter((r) => r.stats)
+
+  // ── Persist input state ─────────────────────────
+
   useEffect(() => {
     localStorage.setItem('science-stats-groups', JSON.stringify(groups))
   }, [groups])
   useEffect(() => {
     localStorage.setItem('science-stats-digits', JSON.stringify(digits))
   }, [digits])
+  useEffect(() => { localStorage.setItem('science-stats-exp-label', expLabel) }, [expLabel])
+  useEffect(() => { localStorage.setItem('science-stats-conc', concentration) }, [concentration])
+  useEffect(() => { localStorage.setItem('science-stats-conc-unit', concUnit) }, [concUnit])
+
+  // ── Group selection ─────────────────────────────
 
   function toggleSelectGroup(id: string) {
     setSelectedGroupIds((prev) => {
@@ -165,15 +195,9 @@ export default function StatsTool() {
     })
   }
   function selectAllGroups() {
-    const valid = computed.filter((r) => r.stats)
-    if (valid.length === 0) return
-    // If all selected, deselect all
-    const allSelected = valid.every((r) => selectedGroupIds.has(r.id))
-    if (allSelected) {
-      setSelectedGroupIds(new Set())
-    } else {
-      setSelectedGroupIds(new Set(valid.map((r) => r.id)))
-    }
+    if (validGroups.length === 0) return
+    const allSelected = validGroups.every((r) => selectedGroupIds.has(r.id))
+    setSelectedGroupIds(allSelected ? new Set() : new Set(validGroups.map((r) => r.id)))
   }
 
   // ── Group handlers ──────────────────────────────
@@ -220,23 +244,31 @@ export default function StatsTool() {
       { id: 'g-r2', name: 'Group 2', unit: 'mm', values: ['', '', '', '', ''] },
       { id: 'g-r3', name: 'Group 3', unit: 'mm', values: ['', '', '', '', ''] },
     ])
+    setSelectedGroupIds(new Set())
   }
 
-  // ── Add single group to results ─────────────────
+  // ── Save experiment to results ──────────────────
 
-  function addToResults(groupId: string) {
-    const g = computed.find((r) => r.id === groupId)
-    if (!g || !g.stats) return
-    const entry: SavedResult = {
-      id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      groupName: g.name,
-      unit: g.unit,
-      mean: fmt(g.stats.mean, digits),
-      std: fmt(g.stats.std, digits),
-      sem: fmt(g.stats.sem, digits),
-      n: g.stats.n,
+  function saveExperiment() {
+    const groupStats: GroupStat[] = validGroups.map((r) => ({
+      name: r.name,
+      unit: r.unit,
+      mean: parseFloat(fmt(r.stats!.mean, digits)),
+      std: parseFloat(fmt(r.stats!.std, digits)),
+      sem: parseFloat(fmt(r.stats!.sem, digits)),
+      n: r.stats!.n,
+    }))
+    const measurementUnit = validGroups[0]?.unit || 'mm'
+    const entry: ExperimentEntry = {
+      id: `exp-${Date.now()}`,
+      label: expLabel.trim() || `Experiment ${new Date().toLocaleDateString()}`,
+      concentration: concentration.trim(),
+      concUnit,
+      groups: groupStats,
+      crossGroup: summary ? { mean: summary.mean, std: summary.std, sem: summary.sem, n: summary.n } : null,
+      measurementUnit,
       ts: Date.now(),
-      labelId: null,
+      savedLabelId: null,
     }
     const next = [entry, ...results]
     setResults(next)
@@ -267,11 +299,7 @@ export default function StatsTool() {
   function createLabel() {
     const name = newLabelName.trim()
     if (!name) return
-    const lbl: LabelItem = {
-      id: `l-${Date.now()}`,
-      name,
-      ts: Date.now(),
-    }
+    const lbl: LabelItem = { id: `l-${Date.now()}`, name, ts: Date.now() }
     const next = [...labels, lbl]
     setLabels(next)
     saveLabels(next)
@@ -282,8 +310,7 @@ export default function StatsTool() {
     const next = labels.filter((l) => l.id !== id)
     setLabels(next)
     saveLabels(next)
-    // Unassign results that had this label
-    const updated = results.map((r) => (r.labelId === id ? { ...r, labelId: null } : r))
+    const updated = results.map((r) => (r.savedLabelId === id ? { ...r, savedLabelId: null } : r))
     setResults(updated)
     saveResults(updated)
   }
@@ -297,7 +324,7 @@ export default function StatsTool() {
   function assignSelectedToLabel() {
     if (!assignLabelId || selectedResultIds.size === 0) return
     const updated = results.map((r) =>
-      selectedResultIds.has(r.id) ? { ...r, labelId: assignLabelId } : r
+      selectedResultIds.has(r.id) ? { ...r, savedLabelId: assignLabelId } : r
     )
     setResults(updated)
     saveResults(updated)
@@ -325,113 +352,115 @@ export default function StatsTool() {
 
   function selectAllExport() {
     const all = new Set<string>()
-    if (unlabeledResults.length > 0) all.add('__unlabeled__')
+    if (results.some((r) => !r.savedLabelId)) all.add('__unlabeled__')
     labels.forEach((l) => all.add(l.id))
     setExportSelection(all)
   }
 
+  // ── PDF export ──────────────────────────────────
+
   function exportPDF() {
     const doc = new jsPDF()
     const dateStr = new Date().toLocaleDateString()
+    let y = 20
     let hasContent = false
 
-    // Title
     doc.setFontSize(16)
     doc.setFont('helvetica', 'bold')
-    doc.text('Science Stats Lab - Results Export', 14, 20)
+    doc.text('Science Stats Lab - Export', 14, y)
+    y += 7
     doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
-    doc.text(`Date: ${dateStr}`, 14, 27)
+    doc.text(`Date: ${dateStr}`, 14, y)
+    y += 8
 
-    let y = 35
+    function renderEntry(entry: ExperimentEntry) {
+      if (y > 250) { doc.addPage(); y = 20 }
 
-    // Unlabeled
-    if (exportSelection.has('__unlabeled__') && unlabeledResults.length > 0) {
+      // Entry title
+      doc.setFontSize(12)
+      doc.setFont('helvetica', 'bold')
+      doc.text(entry.label, 14, y)
+      y += 5
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      const meta = [
+        entry.concentration ? `Conc: ${entry.concentration} ${entry.concUnit}` : '',
+        `Measurement: ${entry.measurementUnit}`,
+        new Date(entry.ts).toLocaleString(),
+      ].filter(Boolean).join('  |  ')
+      doc.text(meta, 14, y)
+      y += 4
+
+      // Group stats table
       autoTable(doc, {
         startY: y,
-        head: [['Unlabeled Results', '', '', '', '']],
-        body: [['Group', 'N', 'Mean', 'Std Dev', 'SEM']],
-        theme: 'plain',
-        headStyles: { fontStyle: 'bold', fontSize: 12, fillColor: [240, 240, 240] },
-        margin: { left: 14, right: 14 },
-      })
-      // @ts-expect-error jspdf-autotable adds lastAutoTable
-      y = doc.lastAutoTable.finalY + 2
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Group', 'N', 'Mean', 'Std Dev', 'SEM']],
-        body: unlabeledResults.map((r) => [
-          r.groupName,
-          String(r.n),
-          `${r.mean} ${r.unit}`,
-          `${r.std} ${r.unit}`,
-          `${r.sem} ${r.unit}`,
+        head: [['Group', 'N', 'Mean', 'SD', 'SEM']],
+        body: entry.groups.map((g) => [
+          g.name, String(g.n),
+          `${g.mean} ${g.unit}`,
+          `${g.std} ${g.unit}`,
+          `${g.sem} ${g.unit}`,
         ]),
         theme: 'grid',
-        headStyles: { fillColor: [66, 139, 202], fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [66, 139, 202], fontStyle: 'bold', fontSize: 9 },
+        styles: { fontSize: 8, cellPadding: 2 },
         margin: { left: 14, right: 14 },
       })
-      // @ts-expect-error jspdf-autotable adds lastAutoTable
-      y = doc.lastAutoTable.finalY + 8
-      hasContent = true
-    }
+      // @ts-expect-error jspdf-autotable
+      y = doc.lastAutoTable.finalY + 3
 
-    // Each selected label
-    for (const lbl of labels) {
-      if (!exportSelection.has(lbl.id)) continue
-      const items = results.filter((r) => r.labelId === lbl.id)
-      if (items.length === 0) continue
-
-      if (y > 250) {
-        doc.addPage()
-        y = 20
+      // Cross-group row
+      if (entry.crossGroup) {
+        autoTable(doc, {
+          startY: y,
+          body: [[
+            'Cross-Group',
+            String(entry.crossGroup.n),
+            `${entry.crossGroup.mean.toFixed(digits)} ${entry.measurementUnit}`,
+            `${entry.crossGroup.std.toFixed(digits)} ${entry.measurementUnit}`,
+            `${entry.crossGroup.sem.toFixed(digits)} ${entry.measurementUnit}`,
+          ]],
+          theme: 'striped',
+          styles: { fontSize: 8, cellPadding: 2, fontStyle: 'bold' },
+          margin: { left: 14, right: 14 },
+        })
+        // @ts-expect-error jspdf-autotable
+        y = doc.lastAutoTable.finalY + 8
+      } else {
+        y += 6
       }
-
-      autoTable(doc, {
-        startY: y,
-        head: [[lbl.name, '', '', '', '']],
-        body: [],
-        theme: 'plain',
-        headStyles: { fontStyle: 'bold', fontSize: 12, fillColor: [240, 240, 240] },
-        margin: { left: 14, right: 14 },
-      })
-      // @ts-expect-error jspdf-autotable adds lastAutoTable
-      y = doc.lastAutoTable.finalY + 2
-
-      autoTable(doc, {
-        startY: y,
-        head: [['Group', 'N', 'Mean', 'Std Dev', 'SEM']],
-        body: items.map((r) => [
-          r.groupName,
-          String(r.n),
-          `${r.mean} ${r.unit}`,
-          `${r.std} ${r.unit}`,
-          `${r.sem} ${r.unit}`,
-        ]),
-        theme: 'grid',
-        headStyles: { fillColor: [66, 139, 202], fontStyle: 'bold' },
-        styles: { fontSize: 9, cellPadding: 3 },
-        margin: { left: 14, right: 14 },
-      })
-      // @ts-expect-error jspdf-autotable adds lastAutoTable
-      y = doc.lastAutoTable.finalY + 8
       hasContent = true
     }
+
+    if (exportSelection.has('__unlabeled__')) {
+      results.filter((r) => !r.savedLabelId).forEach(renderEntry)
+    }
+    labels.forEach((lbl) => {
+      if (!exportSelection.has(lbl.id)) return
+      const items = results.filter((r) => r.savedLabelId === lbl.id)
+      if (items.length === 0) return
+      if (y > 250) { doc.addPage(); y = 20 }
+      doc.setFontSize(13)
+      doc.setFont('helvetica', 'bold')
+      doc.text(lbl.name, 14, y)
+      y += 6
+      items.forEach(renderEntry)
+    })
 
     if (!hasContent) return
-
     doc.save(`science-stats-${Date.now()}.pdf`)
   }
 
   // ── Grouped results for modal ───────────────────
 
-  const unlabeledResults = results.filter((r) => !r.labelId)
+  const unlabeledResults = results.filter((r) => !r.savedLabelId)
   const labeledGroups = labels.map((lbl) => ({
     label: lbl,
-    items: results.filter((r) => r.labelId === lbl.id),
+    items: results.filter((r) => r.savedLabelId === lbl.id),
   })).filter((g) => g.items.length > 0)
+
+  const canSave = validGroups.length > 0
 
   return (
     <div className="space-y-6 relative">
@@ -453,33 +482,66 @@ export default function StatsTool() {
         </div>
       </Card>
 
-      {/* Top bar: decimals + results button */}
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <label className="text-xs text-[var(--color-muted)]">Decimals</label>
-          <select
-            value={digits}
-            onChange={(e) => setDigits(Number(e.target.value))}
-            className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+      {/* Experiment metadata bar + top controls */}
+      <Card>
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Label name */}
+          <div className="flex items-center gap-2 flex-1 min-w-[180px]">
+            <label className="text-xs text-[var(--color-muted)] whitespace-nowrap">Label</label>
+            <input
+              value={expLabel}
+              onChange={(e) => setExpLabel(e.target.value)}
+              placeholder="e.g. Swell Ratio Exp 1"
+              className="flex-1 text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+            />
+          </div>
+          {/* Concentration */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[var(--color-muted)] whitespace-nowrap">Conc</label>
+            <input
+              value={concentration}
+              onChange={(e) => setConcentration(e.target.value)}
+              placeholder="e.g. 0.5"
+              inputMode="decimal"
+              className="w-20 text-sm font-mono border border-[var(--color-border)] rounded-lg px-2 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+            />
+            <UnitPicker
+              value={concUnit}
+              onChange={setConcUnit}
+              className="text-xs font-mono w-20 text-center border border-[var(--color-border)] rounded-lg px-1.5 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+            />
+          </div>
+          {/* Decimals */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-[var(--color-muted)]">Dec</label>
+            <select
+              value={digits}
+              onChange={(e) => setDigits(Number(e.target.value))}
+              className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+            >
+              {[2, 3, 4, 5, 6].map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+          </div>
+          {/* Save + Results buttons */}
+          <Button onClick={saveExperiment} disabled={!canSave} className={!canSave ? 'opacity-40 cursor-not-allowed' : ''}>
+            Save to Results
+          </Button>
+          <Button
+            variant="outline"
+            onClick={() => setShowResults(true)}
+            className="relative"
           >
-            {[2, 3, 4, 5, 6].map((d) => (
-              <option key={d} value={d}>{d}</option>
-            ))}
-          </select>
+            Saved
+            {results.length > 0 && (
+              <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-[var(--color-accent)] text-white">
+                {results.length}
+              </span>
+            )}
+          </Button>
         </div>
-        <Button
-          variant="outline"
-          onClick={() => setShowResults(true)}
-          className="relative"
-        >
-          Saved Results
-          {results.length > 0 && (
-            <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-[var(--color-accent)] text-white">
-              {results.length}
-            </span>
-          )}
-        </Button>
-      </div>
+      </Card>
 
       {/* Group cards */}
       {computed.map((r, gi) => (
@@ -517,15 +579,6 @@ export default function StatsTool() {
               {r.values.length > 1 && (
                 <Button size="sm" variant="ghost" onClick={() => removeLastRow(r.id)}>- Data</Button>
               )}
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => addToResults(r.id)}
-                disabled={!r.stats}
-                className={!r.stats ? 'opacity-40 cursor-not-allowed' : ''}
-              >
-                + Add to Results
-              </Button>
               <Button size="sm" variant="danger" onClick={() => removeGroup(r.id)}>Delete</Button>
             </div>
           </div>
@@ -570,7 +623,7 @@ export default function StatsTool() {
         <Button variant="ghost" onClick={clearAll}>Clear All</Button>
       </div>
 
-      {/* Selection toolbar + Cross-Group Analysis */}
+      {/* Cross-Group Analysis */}
       <Card className="bg-gradient-to-br from-[var(--color-accent-light)] to-white border-[var(--color-accent)]/20">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-3">
@@ -579,22 +632,15 @@ export default function StatsTool() {
               {selectedGroupIds.size} selected
             </span>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={selectAllGroups}
-              className="text-xs text-[var(--color-accent)] hover:underline"
-            >{computed.filter((r) => r.stats).length > 0 && computed.filter((r) => r.stats).every((r) => selectedGroupIds.has(r.id)) ? 'Deselect All' : 'Select All'}</button>
-            <Button
-              size="sm"
-              onClick={() => setShowAnalysis(true)}
-              disabled={selectedGroupIds.size < 2}
-            >Analyze</Button>
-          </div>
+          <button
+            onClick={selectAllGroups}
+            className="text-xs text-[var(--color-accent)] hover:underline"
+          >{validGroups.length > 0 && validGroups.every((r) => selectedGroupIds.has(r.id)) ? 'Deselect All' : 'Select All'}</button>
         </div>
 
         {selectedGroupIds.size < 2 ? (
           <p className="text-xs text-[var(--color-muted)]">
-            Check the box on each group card, then click Analyze to compute Mean, SD, and SEM across the selected groups' means.
+            Check the box on each group card to compute Mean, SD, and SEM across selected groups' means.
           </p>
         ) : (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -605,80 +651,6 @@ export default function StatsTool() {
           </div>
         )}
       </Card>
-
-      {/* Analysis detail modal */}
-      {showAnalysis && summary && (
-        <div
-          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-          onClick={() => setShowAnalysis(false)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
-              <h2 className="text-base font-bold">Cross-Group Analysis</h2>
-              <button
-                onClick={() => setShowAnalysis(false)}
-                className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-[var(--color-muted)] text-lg"
-              >×</button>
-            </div>
-            <div className="px-6 py-5 space-y-4">
-              {/* Selected groups */}
-              <div>
-                <h3 className="text-xs font-semibold text-[var(--color-muted)] mb-2">Selected Groups</h3>
-                <div className="flex flex-wrap gap-2">
-                  {summary.groupNames.map((name, i) => (
-                    <span key={i} className="text-xs px-2 py-1 rounded-md bg-gray-100 font-medium">
-                      {name}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              {/* Results */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <StatBox label="N (groups)" value={`${summary.n}`} />
-                <StatBox label="Grand Mean" value={fmt(summary.mean, digits)} highlight />
-                <StatBox label="Inter-Group SD" value={fmt(summary.std, digits)} />
-                <StatBox label="Inter-Group SEM" value={fmt(summary.sem, digits)} />
-              </div>
-
-              {/* Formula note */}
-              <div className="text-xs text-[var(--color-muted)] bg-gray-50 rounded-lg p-3">
-                N = {summary.n} (number of group means).<br/>
-                Grand Mean = average of the {summary.n} group means.<br/>
-                SD = standard deviation across group means (N-1 denominator).<br/>
-                SEM = SD / √N.
-              </div>
-
-              {/* Add to Saved Results */}
-              <Button
-                className="w-full"
-                onClick={() => {
-                  const entry: SavedResult = {
-                    id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                    groupName: `Analysis (${summary.groupNames.join(', ')})`,
-                    unit: '(cross-group)',
-                    mean: fmt(summary.mean, digits),
-                    std: fmt(summary.std, digits),
-                    sem: fmt(summary.sem, digits),
-                    n: summary.n,
-                    ts: Date.now(),
-                    labelId: null,
-                  }
-                  const next = [entry, ...results]
-                  setResults(next)
-                  saveResults(next)
-                  setShowAnalysis(false)
-                }}
-              >
-                + Add to Saved Results
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* ── Results Modal ─────────────────────────── */}
       {showResults && (
@@ -694,7 +666,6 @@ export default function StatsTool() {
             <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
               <h2 className="text-base font-bold">Saved Results</h2>
               <div className="flex items-center gap-2">
-                {/* Export controls */}
                 {results.length > 0 && (
                   <>
                     <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-[var(--color-accent-light)] border border-[var(--color-accent)]/20">
@@ -721,26 +692,11 @@ export default function StatsTool() {
                           {l.name}
                         </label>
                       ))}
-                      <button
-                        onClick={selectAllExport}
-                        className="text-[10px] text-[var(--color-accent)] hover:underline px-1"
-                      >All</button>
-                      <Button
-                        size="sm"
-                        onClick={exportPDF}
-                        disabled={exportSelection.size === 0}
-                        className="ml-1"
-                      >
-                        PDF
-                      </Button>
+                      <button onClick={selectAllExport} className="text-[10px] text-[var(--color-accent)] hover:underline px-1">All</button>
+                      <Button size="sm" onClick={exportPDF} disabled={exportSelection.size === 0} className="ml-1">PDF</Button>
                     </div>
+                    <button onClick={clearAllResults} className="text-xs text-red-400 hover:text-red-600">Clear all</button>
                   </>
-                )}
-                {results.length > 0 && (
-                  <button
-                    onClick={clearAllResults}
-                    className="text-xs text-red-400 hover:text-red-600"
-                  >Clear all</button>
                 )}
                 <button
                   onClick={() => setShowResults(false)}
@@ -750,15 +706,15 @@ export default function StatsTool() {
             </div>
 
             {/* Modal body */}
-            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+            <div className="flex-1 overflow-y-auto px-6 py-4 space-y-4">
               {results.length === 0 ? (
                 <div className="text-center py-16 text-[var(--color-muted)]">
-                  <p className="text-sm">No saved results yet</p>
-                  <p className="text-xs mt-1">Click <span className="font-medium">+ Add to Results</span> on any group to save its stats</p>
+                  <p className="text-sm">No saved experiments yet</p>
+                  <p className="text-xs mt-1">Fill in data, then click <span className="font-medium">Save to Results</span></p>
                 </div>
               ) : (
                 <>
-                  {/* Create label + assign bar */}
+                  {/* Label + assign bar */}
                   <div className="flex items-center gap-2 flex-wrap p-3 bg-gray-50 rounded-xl border border-[var(--color-border)]">
                     <input
                       value={newLabelName}
@@ -767,9 +723,7 @@ export default function StatsTool() {
                       placeholder="New label name..."
                       className="flex-1 min-w-[140px] text-sm border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
                     />
-                    <Button size="sm" variant="outline" onClick={createLabel} disabled={!newLabelName.trim()}>
-                      + Create Label
-                    </Button>
+                    <Button size="sm" variant="outline" onClick={createLabel} disabled={!newLabelName.trim()}>+ Create Label</Button>
                     <div className="w-px h-6 bg-[var(--color-border)] mx-1" />
                     {selectedResultIds.size > 0 && (
                       <>
@@ -780,35 +734,33 @@ export default function StatsTool() {
                           className="text-sm border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
                         >
                           <option value="">Assign to...</option>
-                          {labels.map((l) => (
-                            <option key={l.id} value={l.id}>{l.name}</option>
-                          ))}
+                          {labels.map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
                         </select>
-                        <Button size="sm" onClick={assignSelectedToLabel} disabled={!assignLabelId}>
-                          Assign
-                        </Button>
+                        <Button size="sm" onClick={assignSelectedToLabel} disabled={!assignLabelId}>Assign</Button>
                       </>
                     )}
                   </div>
 
-                  {/* Unlabeled results */}
+                  {/* Unlabeled experiments */}
                   {unlabeledResults.length > 0 && (
-                    <ResultSection
+                    <ExperimentSection
                       title="Unlabeled"
                       items={unlabeledResults}
+                      digits={digits}
                       selectedIds={selectedResultIds}
                       onToggle={toggleSelect}
                       onDelete={deleteResult}
                     />
                   )}
 
-                  {/* Labeled groups */}
+                  {/* Labeled experiments */}
                   {labeledGroups.map(({ label, items }) => (
-                    <ResultSection
+                    <ExperimentSection
                       key={label.id}
                       title={label.name}
                       labelId={label.id}
                       items={items}
+                      digits={digits}
                       selectedIds={selectedResultIds}
                       onToggle={toggleSelect}
                       onDelete={deleteResult}
@@ -826,11 +778,12 @@ export default function StatsTool() {
   )
 }
 
-// ── Result Section component ──────────────────────
+// ── Experiment Section component ──────────────────
 
-function ResultSection({
+function ExperimentSection({
   title,
   items,
+  digits,
   selectedIds,
   onToggle,
   onDelete,
@@ -839,7 +792,8 @@ function ResultSection({
   onDeleteLabel,
 }: {
   title: string
-  items: SavedResult[]
+  items: ExperimentEntry[]
+  digits: number
   selectedIds: Set<string>
   onToggle: (id: string) => void
   onDelete: (id: string) => void
@@ -857,20 +811,10 @@ function ResultSection({
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onBlur={() => {
-              setEditing(false)
-              if (onRenameLabel && name.trim()) onRenameLabel(name.trim())
-              else setName(title)
-            }}
+            onBlur={() => { setEditing(false); if (onRenameLabel && name.trim()) onRenameLabel(name.trim()); else setName(title) }}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                setEditing(false)
-                if (onRenameLabel && name.trim()) onRenameLabel(name.trim())
-              }
-              if (e.key === 'Escape') {
-                setName(title)
-                setEditing(false)
-              }
+              if (e.key === 'Enter') { setEditing(false); if (onRenameLabel && name.trim()) onRenameLabel(name.trim()) }
+              if (e.key === 'Escape') { setName(title); setEditing(false) }
             }}
             autoFocus
             className="text-sm font-bold bg-transparent border-b border-[var(--color-accent)] outline-none px-1"
@@ -885,44 +829,75 @@ function ResultSection({
           </h3>
         )}
         {labelId && onDeleteLabel && (
-          <button
-            onClick={onDeleteLabel}
-            className="text-xs text-[var(--color-muted)] hover:text-red-500"
-          >Remove label</button>
+          <button onClick={onDeleteLabel} className="text-xs text-[var(--color-muted)] hover:text-red-500">Remove label</button>
         )}
       </div>
-      <div className="space-y-2">
-        {items.map((r) => (
+      <div className="space-y-3">
+        {items.map((entry) => (
           <div
-            key={r.id}
-            className={`flex items-center gap-3 rounded-lg border p-2.5 transition-all cursor-pointer ${
-              selectedIds.has(r.id)
+            key={entry.id}
+            className={`rounded-lg border p-3 transition-all cursor-pointer ${
+              selectedIds.has(entry.id)
                 ? 'border-[var(--color-accent)] bg-[var(--color-accent-light)]/50'
                 : 'border-[var(--color-border)] hover:bg-gray-50'
             }`}
-            onClick={() => onToggle(r.id)}
+            onClick={() => onToggle(entry.id)}
           >
-            <input
-              type="checkbox"
-              checked={selectedIds.has(r.id)}
-              onChange={() => onToggle(r.id)}
-              className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
-              onClick={(e) => e.stopPropagation()}
-            />
-            <div className="flex-1 grid grid-cols-5 gap-2 text-xs">
-              <span className="font-semibold">{r.groupName}</span>
-              <span className="text-right font-mono text-[var(--color-muted)]">N={r.n}</span>
-              <span className="text-right font-mono">{r.mean} {r.unit}</span>
-              <span className="text-right font-mono text-[var(--color-muted)]">σ={r.std}</span>
-              <span className="text-right font-mono text-[var(--color-muted)]">SEM={r.sem}</span>
+            <div className="flex items-center justify-between mb-2">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(entry.id)}
+                  onChange={() => onToggle(entry.id)}
+                  className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+                  onClick={(e) => e.stopPropagation()}
+                />
+                <span className="text-sm font-semibold">{entry.label}</span>
+                {entry.concentration && (
+                  <span className="text-xs text-[var(--color-muted)] font-mono">
+                    {entry.concentration} {entry.concUnit}
+                  </span>
+                )}
+              </div>
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(entry.id) }}
+                className="text-[var(--color-muted)] hover:text-red-500 text-sm px-1"
+              >×</button>
             </div>
-            <button
-              onClick={(e) => {
-                e.stopPropagation()
-                onDelete(r.id)
-              }}
-              className="text-[var(--color-muted)] hover:text-red-500 text-sm px-1"
-            >×</button>
+            {/* Group stats table */}
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-[var(--color-border)] text-[var(--color-muted)]">
+                    <th className="text-left py-1.5 pr-3">Group</th>
+                    <th className="text-right py-1.5 px-2">N</th>
+                    <th className="text-right py-1.5 px-2">Mean</th>
+                    <th className="text-right py-1.5 px-2">SD</th>
+                    <th className="text-right py-1.5 px-2">SEM</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {entry.groups.map((g, i) => (
+                    <tr key={i} className="border-b border-[var(--color-border)] last:border-0">
+                      <td className="py-1.5 pr-3 font-medium">{g.name}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{g.n}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{g.mean} {g.unit}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-[var(--color-muted)]">{g.std}</td>
+                      <td className="py-1.5 px-2 text-right font-mono text-[var(--color-muted)]">{g.sem}</td>
+                    </tr>
+                  ))}
+                  {entry.crossGroup && (
+                    <tr className="bg-[var(--color-accent-light)]/30 font-bold">
+                      <td className="py-1.5 pr-3">Cross-Group</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.n}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.mean.toFixed(digits)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.std.toFixed(digits)}</td>
+                      <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.sem.toFixed(digits)}</td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         ))}
       </div>
