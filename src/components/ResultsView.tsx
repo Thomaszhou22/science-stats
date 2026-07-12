@@ -523,17 +523,17 @@ function ExperimentSection({
                             <td className="py-1.5 pr-3 font-medium">{g.name}</td>
                             <CopyCell value={g.n} />
                             <CopyCell value={`${g.mean} ${g.unit}`} primary />
-                            <CopyCell value={g.std} />
-                            <CopyCell value={g.sem} />
+                            <CopyCell value={`${g.std} ${g.unit}`} />
+                            <CopyCell value={`${g.sem} ${g.unit}`} />
                           </tr>
                         ))}
                         {entry.crossGroup && (
                           <tr className="bg-[var(--color-accent-light)]/30 font-bold">
                             <td className="py-1.5 pr-3">Cross-Group</td>
                             <CopyCell value={entry.crossGroup.n} />
-                            <CopyCell value={Number(entry.crossGroup.mean.toFixed(4))} primary />
-                            <CopyCell value={Number(entry.crossGroup.std.toFixed(4))} />
-                            <CopyCell value={Number(entry.crossGroup.sem.toFixed(4))} />
+                            <CopyCell value={`${Number(entry.crossGroup.mean.toFixed(4))} ${entry.measurementUnit}`} primary />
+                            <CopyCell value={`${Number(entry.crossGroup.std.toFixed(4))} ${entry.measurementUnit}`} />
+                            <CopyCell value={`${Number(entry.crossGroup.sem.toFixed(4))} ${entry.measurementUnit}`} />
                           </tr>
                         )}
                       </tbody>

@@ -125,6 +125,61 @@ const GEOMETRY_FORMULAS = [
   },
 ]
 
+// ── Auto unit scaling for geometry ───────────────
+const GEO_LENGTH_CHAIN = ['nm', 'μm', 'mm', 'cm', 'dm', 'm'] as const
+const GEO_LENGTH_FACTORS: Record<string, number> = {
+  nm: 1e-9, μm: 1e-6, mm: 1e-3, cm: 1e-2, dm: 1e-1, m: 1,
+}
+const SUP_MAP: Record<number, string> = { 1: '', 2: '²', 3: '³' }
+const VOLUME_LIQUID_EQUIV: Record<string, string> = {
+  nm: 'pL', μm: 'nL', mm: 'μL', cm: 'mL', dm: 'L', m: 'kL',
+}
+
+function getFormulaPower(unitStr: string): number {
+  if (unitStr === '³') return 3
+  if (unitStr === '²') return 2
+  return 1
+}
+
+function autoScaleGeo(rawValue: number, inputUnit: string, power: number, digits: number) {
+  const startIdx = GEO_LENGTH_CHAIN.indexOf(inputUnit)
+  if (startIdx === -1) {
+    const formatted = rawValue.toFixed(digits).replace(/\.?0+$/, '')
+    return { formatted, unit: inputUnit + SUP_MAP[power], copyText: `${formatted} ${inputUnit}${SUP_MAP[power]}`, extra: '' }
+  }
+
+  const valueInBase = rawValue * Math.pow(GEO_LENGTH_FACTORS[inputUnit], power)
+
+  // Scale up if number too large (>= 10000)
+  let bestIdx = startIdx
+  while (bestIdx < GEO_LENGTH_CHAIN.length - 1) {
+    const f = Math.pow(GEO_LENGTH_FACTORS[GEO_LENGTH_CHAIN[bestIdx]], power)
+    if (Math.abs(valueInBase / f) >= 10000) bestIdx++
+    else break
+  }
+
+  // Scale down if number too small (< 0.001)
+  while (bestIdx > 0) {
+    const f = Math.pow(GEO_LENGTH_FACTORS[GEO_LENGTH_CHAIN[bestIdx]], power)
+    if (Math.abs(valueInBase / f) < 0.001) bestIdx--
+    else break
+  }
+
+  const bestPrefix = GEO_LENGTH_CHAIN[bestIdx]
+  const bestFactor = Math.pow(GEO_LENGTH_FACTORS[bestPrefix], power)
+  const scaledValue = valueInBase / bestFactor
+  const formatted = scaledValue.toFixed(digits).replace(/\.?0+$/, '')
+  const unit = bestPrefix + SUP_MAP[power]
+
+  // Show liquid equivalent for volumes
+  let extra = ''
+  if (power === 3 && VOLUME_LIQUID_EQUIV[bestPrefix]) {
+    extra = ` (= ${formatted} ${VOLUME_LIQUID_EQUIV[bestPrefix]})`
+  }
+
+  return { formatted, unit, copyText: `${formatted} ${unit}`, extra }
+}
+
 // ── Calculator component ─────────────────────────
 
 export default function Calculator() {
@@ -182,6 +237,12 @@ export default function Calculator() {
   })
   useEffect(() => { localStorage.setItem('calc-use-diameter', String(useDiameter)) }, [useDiameter])
 
+  const [geoUnit, setGeoUnit] = useState(() => {
+    try { return localStorage.getItem('calc-geo-unit') || 'mm' } catch { return 'mm' }
+  })
+  useEffect(() => { localStorage.setItem('calc-geo-unit', geoUnit) }, [geoUnit])
+  const [geoCopied, setGeoCopied] = useState(false)
+
   const activeFormula = GEOMETRY_FORMULAS.find((f) => f.id === activeGeo)!
   const geoInputValues = geoInputs[activeGeo] || activeFormula.inputs.map((i) => i.default)
   const geoResult = useMemo(() => {
@@ -196,6 +257,12 @@ export default function Calculator() {
       return isNaN(r) ? null : r
     } catch { return null }
   }, [geoInputValues, activeFormula, useDiameter])
+
+  const geoScaled = useMemo(() => {
+    if (geoResult === null) return null
+    const power = getFormulaPower(activeFormula.unit)
+    return autoScaleGeo(geoResult, geoUnit, power, digits)
+  }, [geoResult, activeFormula, geoUnit, digits])
 
   function setGeoInput(idx: number, val: string) {
     setGeoInputs((prev) => {
@@ -371,12 +438,36 @@ export default function Calculator() {
                 )
               })}
             </div>
-            {geoResult !== null && (
-              <div className="flex items-center justify-between bg-[var(--color-accent)]/8 border border-[var(--color-accent)]/20 rounded-lg px-4 py-3">
+            {/* Unit selector */}
+            <div className="mb-3">
+              <label className="text-xs text-[var(--color-muted)] block mb-1">Input length unit</label>
+              <div className="flex gap-1">
+                {(['mm', 'cm', 'dm', 'm'] as const).map((u) => (
+                  <button
+                    key={u}
+                    onClick={() => setGeoUnit(u)}
+                    className={`text-xs px-2.5 py-1 rounded-md transition-all ${
+                      geoUnit === u
+                        ? 'bg-[var(--color-accent)] text-white font-semibold'
+                        : 'bg-white text-[var(--color-muted)] border border-[var(--color-border)] hover:bg-gray-50'
+                    }`}
+                  >{u}</button>
+                ))}
+              </div>
+            </div>
+            {geoResult !== null && geoScaled && (
+              <div
+                onClick={() => {
+                  navigator.clipboard.writeText(geoScaled.copyText)
+                  setGeoCopied(true)
+                  setTimeout(() => setGeoCopied(false), 1000)
+                }}
+                className="flex items-center justify-between bg-[var(--color-accent)]/8 border border-[var(--color-accent)]/20 rounded-lg px-4 py-3 cursor-pointer hover:bg-[var(--color-accent)]/12 transition-all"
+                title={geoCopied ? 'Copied!' : `Click to copy: ${geoScaled.copyText}`}
+              >
                 <span className="text-xs text-[var(--color-muted)]">Result</span>
-                <span className="text-xl font-mono font-bold text-[var(--color-accent)]">
-                  {geoResult.toFixed(digits).replace(/\.?0+$/, '')}
-                  <span className="text-sm font-normal ml-1">{activeFormula.unit}</span>
+                <span className={`text-xl font-mono font-bold ${geoCopied ? 'text-green-600' : 'text-[var(--color-accent)]'}`}>
+                  {geoCopied ? 'Copied ✓' : <>{geoScaled.formatted} <span className="text-sm font-normal ml-1">{geoScaled.unit}</span>{geoScaled.extra && <span className="text-xs font-normal text-[var(--color-muted)] ml-2">{geoScaled.extra}</span>}</>}
                 </span>
               </div>
             )}
