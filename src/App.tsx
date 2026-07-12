@@ -1,14 +1,15 @@
 import { useState } from 'react'
 import StatsTool from './components/StatsTool'
 import SolutionTool from './components/SolutionTool'
+import ResultsView from './components/ResultsView'
 
-type Tab = 'stats' | 'solution'
+type Tab = 'stats' | 'solution' | 'results'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     try {
       const saved = localStorage.getItem('science-stats-tab') as Tab | null
-      return saved === 'stats' || saved === 'solution' ? saved : 'stats'
+      return saved === 'stats' || saved === 'solution' || saved === 'results' ? saved : 'stats'
     } catch { return 'stats' }
   })
 
@@ -20,17 +21,16 @@ export default function App() {
   const tabs: { key: Tab; label: string; icon: string }[] = [
     { key: 'stats', label: 'Statistics', icon: 'σ' },
     { key: 'solution', label: 'Solution Prep', icon: '⚗' },
+    { key: 'results', label: 'Results', icon: '◆' },
   ]
 
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
-      {/* Header */}
       <header className="border-b border-[var(--color-border)] bg-white/80 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-6 py-4">
           <div className="flex items-center justify-between mb-3">
             <h1 className="text-lg font-bold tracking-tight">Science Stats Lab</h1>
           </div>
-          {/* Tab bar */}
           <div className="flex gap-1 -mb-4">
             {tabs.map((t) => (
               <button
@@ -53,6 +53,7 @@ export default function App() {
       <main className="max-w-5xl mx-auto px-6 py-8">
         {tab === 'stats' && <StatsTool />}
         {tab === 'solution' && <SolutionTool />}
+        {tab === 'results' && <ResultsView />}
       </main>
     </div>
   )
