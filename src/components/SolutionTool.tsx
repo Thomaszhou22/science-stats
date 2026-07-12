@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { Card, Button, fmt } from './ui'
 
 interface Reagent {
@@ -50,10 +50,30 @@ function makePresets(): Reagent[] {
   return PRESETS.map((p) => ({ ...p, id: `r-rst-${++reagentCounter}`, volML: '' }))
 }
 
+function loadReagents(): Reagent[] {
+  try {
+    const raw = localStorage.getItem('science-solution-reagents')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return makePresets()
+}
+function loadTotalInput(): string {
+  try { return localStorage.getItem('science-solution-total') || '' } catch { return '' }
+}
+function loadSolDigits(): number {
+  try {
+    const raw = localStorage.getItem('science-solution-digits')
+    return raw ? JSON.parse(raw) : 2
+  } catch { return 2 }
+}
+
 export default function SolutionTool() {
-  const [reagents, setReagents] = useState<Reagent[]>(makePresets())
-  const [totalInput, setTotalInput] = useState('')
-  const [digits, setDigits] = useState(2)
+  const [reagents, setReagents] = useState<Reagent[]>(loadReagents)
+  const [totalInput, setTotalInput] = useState(loadTotalInput)
+  const [digits, setDigits] = useState(loadSolDigits)
 
   const [fracDraft, setFracDraft] = useState<Record<string, string>>({})
   const [fracFocused, setFracFocused] = useState<string | null>(null)
@@ -62,6 +82,16 @@ export default function SolutionTool() {
 
   const [savedEntries, setSavedEntries] = useState<SavedSolutionEntry[]>(loadSolutionEntries)
   const [saveLabel, setSaveLabel] = useState('')
+
+  useEffect(() => {
+    localStorage.setItem('science-solution-reagents', JSON.stringify(reagents))
+  }, [reagents])
+  useEffect(() => {
+    localStorage.setItem('science-solution-total', totalInput)
+  }, [totalInput])
+  useEffect(() => {
+    localStorage.setItem('science-solution-digits', JSON.stringify(digits))
+  }, [digits])
 
   const lastEdit = useRef<'vol' | 'total' | 'fraction' | null>(null)
 

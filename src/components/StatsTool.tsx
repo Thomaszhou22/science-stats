@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Card, Button, StatBox, fmt } from './ui'
@@ -71,13 +71,30 @@ function calcStats(values: number[]) {
   return { mean, std, sem, n }
 }
 
-export default function StatsTool() {
-  const [groups, setGroups] = useState<SampleGroup[]>([
+function loadGroups(): SampleGroup[] {
+  try {
+    const raw = localStorage.getItem('science-stats-groups')
+    if (raw) {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed
+    }
+  } catch {}
+  return [
     { id: 'g-init-1', name: 'Group 1', unit: 'mm', values: ['', '', '', '', ''] },
     { id: 'g-init-2', name: 'Group 2', unit: 'mm', values: ['', '', '', '', ''] },
     { id: 'g-init-3', name: 'Group 3', unit: 'mm', values: ['', '', '', '', ''] },
-  ])
-  const [digits, setDigits] = useState(4)
+  ]
+}
+function loadDigits(): number {
+  try {
+    const raw = localStorage.getItem('science-stats-digits')
+    return raw ? JSON.parse(raw) : 4
+  } catch { return 4 }
+}
+
+export default function StatsTool() {
+  const [groups, setGroups] = useState<SampleGroup[]>(loadGroups)
+  const [digits, setDigits] = useState(loadDigits)
 
   // Saved results & labels
   const [results, setResults] = useState<SavedResult[]>(loadResults)
@@ -104,6 +121,13 @@ export default function StatsTool() {
     if (allMeans.length === 0) return null
     return calcStats(allMeans)
   }, [computed])
+
+  useEffect(() => {
+    localStorage.setItem('science-stats-groups', JSON.stringify(groups))
+  }, [groups])
+  useEffect(() => {
+    localStorage.setItem('science-stats-digits', JSON.stringify(digits))
+  }, [digits])
 
   // ── Group handlers ──────────────────────────────
 
@@ -401,7 +425,7 @@ export default function StatsTool() {
           onClick={() => setShowResults(true)}
           className="relative"
         >
-          Results
+          Saved Results
           {results.length > 0 && (
             <span className="ml-1.5 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 text-[10px] font-bold rounded-full bg-[var(--color-accent)] text-white">
               {results.length}
