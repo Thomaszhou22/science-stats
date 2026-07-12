@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react'
-import { Card, Button, StatBox, fmt } from './ui'
+import { Card, Button, fmt } from './ui'
 
 interface Reagent {
   id: string
@@ -316,26 +316,6 @@ export default function SolutionTool() {
         <Button variant="outline" onClick={addReagent}>+ Add Reagent</Button>
         <Button variant="ghost" onClick={resetToPresets}>Reset Presets</Button>
       </div>
-
-      {sumVol > 0 && (
-        <Card className="bg-gradient-to-br from-[var(--color-accent-light)] to-white border-[var(--color-accent)]/20">
-          <h2 className="text-sm font-bold mb-4">Solution Overview</h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatBox label="Reagents" value={`${reagents.filter((r) => parseFloat(r.volML) > 0).length}`} />
-            <StatBox label="Total Volume" value={`${fmt(totalNum, digits)} mL`} highlight />
-            {reagents
-              .filter((r) => parseFloat(r.volML) > 0)
-              .slice(0, 2)
-              .map((r) => {
-                const v = parseFloat(r.volML)
-                const pct = totalNum > 0 ? (v / totalNum) * 100 : 0
-                return (
-                  <StatBox key={r.id} label={r.name} value={`${fmt(pct, digits)}%`} />
-                )
-              })}
-          </div>
-        </Card>
-      )}
 
       {/* Save bar */}
       <Card>
