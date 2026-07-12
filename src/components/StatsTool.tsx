@@ -109,6 +109,10 @@ export default function StatsTool() {
   // Export selection: which sections (labels + unlabeled) to include in PDF
   const [exportSelection, setExportSelection] = useState<Set<string>>(new Set()) // '__unlabeled__' or label.id
 
+  // Cross-group analysis: select groups to compute mean/SD/SEM across their means
+  const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
+  const [showAnalysis, setShowAnalysis] = useState(false)
+
   const computed = useMemo(() => {
     return groups.map((g) => {
       const nums = g.values.map((v) => parseFloat(v)).filter((v) => !isNaN(v))
@@ -117,10 +121,11 @@ export default function StatsTool() {
   }, [groups])
 
   const summary = useMemo(() => {
-    const allMeans = computed.filter((r) => r.stats).map((r) => r.stats!.mean)
-    if (allMeans.length === 0) return null
-    return calcStats(allMeans)
-  }, [computed])
+    const selected = computed.filter((r) => r.stats && selectedGroupIds.has(r.id))
+    const means = selected.map((r) => r.stats!.mean)
+    if (means.length === 0) return null
+    return { ...calcStats(means)!, groupNames: selected.map((r) => r.name) }
+  }, [computed, selectedGroupIds])
 
   useEffect(() => {
     localStorage.setItem('science-stats-groups', JSON.stringify(groups))
@@ -128,6 +133,26 @@ export default function StatsTool() {
   useEffect(() => {
     localStorage.setItem('science-stats-digits', JSON.stringify(digits))
   }, [digits])
+
+  function toggleSelectGroup(id: string) {
+    setSelectedGroupIds((prev) => {
+      const n = new Set(prev)
+      if (n.has(id)) n.delete(id)
+      else n.add(id)
+      return n
+    })
+  }
+  function selectAllGroups() {
+    const valid = computed.filter((r) => r.stats)
+    if (valid.length === 0) return
+    // If all selected, deselect all
+    const allSelected = valid.every((r) => selectedGroupIds.has(r.id))
+    if (allSelected) {
+      setSelectedGroupIds(new Set())
+    } else {
+      setSelectedGroupIds(new Set(valid.map((r) => r.id)))
+    }
+  }
 
   // ── Group handlers ──────────────────────────────
 
@@ -436,9 +461,17 @@ export default function StatsTool() {
 
       {/* Group cards */}
       {computed.map((r) => (
-        <Card key={r.id}>
+        <Card key={r.id} className={selectedGroupIds.has(r.id) ? 'ring-2 ring-[var(--color-accent)]/40' : ''}>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-1">
+              <input
+                type="checkbox"
+                checked={selectedGroupIds.has(r.id)}
+                onChange={() => toggleSelectGroup(r.id)}
+                disabled={!r.stats}
+                className={`w-4 h-4 accent-[var(--color-accent)] cursor-pointer ${!r.stats ? 'opacity-30 cursor-not-allowed' : ''}`}
+                title={r.stats ? 'Select for cross-group analysis' : 'Enter data first'}
+              />
               <input
                 value={r.name}
                 onChange={(e) => updateGroupName(r.id, e.target.value)}
@@ -514,17 +547,114 @@ export default function StatsTool() {
         <Button variant="ghost" onClick={clearAll}>Clear All</Button>
       </div>
 
-      {summary && summary.n >= 2 && (
-        <Card className="bg-gradient-to-br from-[var(--color-accent-light)] to-white border-[var(--color-accent)]/20">
-          <h2 className="text-sm font-bold mb-1">Cross-Group Summary</h2>
-          <p className="text-xs text-[var(--color-muted)] mb-4">Statistics computed across group means</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatBox label="Groups" value={`${summary.n}`} />
-            <StatBox label="Grand Mean" value={fmt(summary.mean, digits)} highlight />
-            <StatBox label="Inter-Group σ" value={fmt(summary.std, digits)} />
-            <StatBox label="Inter-Group SEM" value={fmt(summary.sem, digits)} />
+      {/* Selection toolbar + Cross-Group Analysis */}
+      <Card className="bg-gradient-to-br from-[var(--color-accent-light)] to-white border-[var(--color-accent)]/20">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-3">
+            <h2 className="text-sm font-bold">Cross-Group Analysis</h2>
+            <span className="text-xs text-[var(--color-muted)]">
+              {selectedGroupIds.size} selected
+            </span>
           </div>
-        </Card>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={selectAllGroups}
+              className="text-xs text-[var(--color-accent)] hover:underline"
+            >{computed.filter((r) => r.stats).length > 0 && computed.filter((r) => r.stats).every((r) => selectedGroupIds.has(r.id)) ? 'Deselect All' : 'Select All'}</button>
+            <Button
+              size="sm"
+              onClick={() => setShowAnalysis(true)}
+              disabled={selectedGroupIds.size < 2}
+            >Analyze</Button>
+          </div>
+        </div>
+
+        {selectedGroupIds.size < 2 ? (
+          <p className="text-xs text-[var(--color-muted)]">
+            Check the box on each group card, then click Analyze to compute Mean, SD, and SEM across the selected groups' means.
+          </p>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <StatBox label="N (groups)" value={`${summary?.n ?? selectedGroupIds.size}`} />
+            <StatBox label="Grand Mean" value={summary ? fmt(summary.mean, digits) : '—'} highlight />
+            <StatBox label="Inter-Group SD" value={summary ? fmt(summary.std, digits) : '—'} />
+            <StatBox label="Inter-Group SEM" value={summary ? fmt(summary.sem, digits) : '—'} />
+          </div>
+        )}
+      </Card>
+
+      {/* Analysis detail modal */}
+      {showAnalysis && summary && (
+        <div
+          className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+          onClick={() => setShowAnalysis(false)}
+        >
+          <div
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--color-border)]">
+              <h2 className="text-base font-bold">Cross-Group Analysis</h2>
+              <button
+                onClick={() => setShowAnalysis(false)}
+                className="w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-[var(--color-muted)] text-lg"
+              >×</button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              {/* Selected groups */}
+              <div>
+                <h3 className="text-xs font-semibold text-[var(--color-muted)] mb-2">Selected Groups</h3>
+                <div className="flex flex-wrap gap-2">
+                  {summary.groupNames.map((name, i) => (
+                    <span key={i} className="text-xs px-2 py-1 rounded-md bg-gray-100 font-medium">
+                      {name}
+                    </span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Results */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <StatBox label="N (groups)" value={`${summary.n}`} />
+                <StatBox label="Grand Mean" value={fmt(summary.mean, digits)} highlight />
+                <StatBox label="Inter-Group SD" value={fmt(summary.std, digits)} />
+                <StatBox label="Inter-Group SEM" value={fmt(summary.sem, digits)} />
+              </div>
+
+              {/* Formula note */}
+              <div className="text-xs text-[var(--color-muted)] bg-gray-50 rounded-lg p-3">
+                N = {summary.n} (number of group means).<br/>
+                Grand Mean = average of the {summary.n} group means.<br/>
+                SD = standard deviation across group means (N-1 denominator).<br/>
+                SEM = SD / √N.
+              </div>
+
+              {/* Add to Saved Results */}
+              <Button
+                className="w-full"
+                onClick={() => {
+                  const entry: SavedResult = {
+                    id: `r-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                    groupName: `Analysis (${summary.groupNames.join(', ')})`,
+                    unit: '(cross-group)',
+                    mean: fmt(summary.mean, digits),
+                    std: fmt(summary.std, digits),
+                    sem: fmt(summary.sem, digits),
+                    n: summary.n,
+                    ts: Date.now(),
+                    labelId: null,
+                  }
+                  const next = [entry, ...results]
+                  setResults(next)
+                  saveResults(next)
+                  setShowAnalysis(false)
+                }}
+              >
+                + Add to Saved Results
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* ── Results Modal ─────────────────────────── */}
