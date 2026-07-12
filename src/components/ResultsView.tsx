@@ -223,19 +223,13 @@ export default function ResultsView() {
           {/* Export */}
           <div className="w-px h-6 bg-[var(--color-border)] mx-1" />
           <div className="flex items-center gap-1.5">
-            {unlabeled.length > 0 && (
-              <label className="flex items-center gap-1 text-xs cursor-pointer">
-                <input type="checkbox" checked={exportSelection.has('__unlabeled__')} onChange={() => toggleExportSection('__unlabeled__')} className="w-3.5 h-3.5 accent-[var(--color-accent)]" />
-                Unlabeled
-              </label>
-            )}
             {labels.map((l) => (
               <label key={l.id} className="flex items-center gap-1 text-xs cursor-pointer">
                 <input type="checkbox" checked={exportSelection.has(l.id)} onChange={() => toggleExportSection(l.id)} className="w-3.5 h-3.5 accent-[var(--color-accent)]" />
                 {l.name}
               </label>
             ))}
-            <button onClick={selectAllExport} className="text-[10px] text-[var(--color-accent)] hover:underline px-1">All</button>
+            <button onClick={selectAllExport} className="text-[10px] text-[var(--color-accent)] hover:underline px-2">All</button>
             <Button size="sm" onClick={exportPDF} disabled={exportSelection.size === 0}>PDF</Button>
           </div>
 
@@ -252,6 +246,15 @@ export default function ResultsView() {
           selectedIds={selectedIds}
           expandedId={expandedId}
           onToggle={toggleSelect}
+          onToggleAll={(ids) => {
+            setSelectedIds((prev) => {
+              const n = new Set(prev)
+              const allSelected = ids.every((id) => n.has(id))
+              if (allSelected) ids.forEach((id) => n.delete(id))
+              else ids.forEach((id) => n.add(id))
+              return n
+            })
+          }}
           onExpand={setExpandedId}
           onDelete={deleteResult}
           onRenameEntry={renameEntry}
@@ -271,6 +274,15 @@ export default function ResultsView() {
           selectedIds={selectedIds}
           expandedId={expandedId}
           onToggle={toggleSelect}
+          onToggleAll={(ids) => {
+            setSelectedIds((prev) => {
+              const n = new Set(prev)
+              const allSelected = ids.every((id) => n.has(id))
+              if (allSelected) ids.forEach((id) => n.delete(id))
+              else ids.forEach((id) => n.add(id))
+              return n
+            })
+          }}
           onExpand={setExpandedId}
           onDelete={deleteResult}
           onRenameEntry={renameEntry}
@@ -289,7 +301,7 @@ export default function ResultsView() {
 
 function ExperimentSection({
   title, items, labelId, selectedIds, expandedId,
-  onToggle, onExpand, onDelete,
+  onToggle, onToggleAll, onExpand, onDelete,
   onRenameLabel, onDeleteLabel, onRenameEntry,
   onAddVar, onUpdateVar, onDeleteVar,
 }: {
@@ -299,6 +311,7 @@ function ExperimentSection({
   selectedIds: Set<string>
   expandedId: string | null
   onToggle: (id: string) => void
+  onToggleAll: (ids: string[]) => void
   onExpand: (id: string | null) => void
   onDelete: (id: string) => void
   onRenameLabel?: (name: string) => void
@@ -316,7 +329,15 @@ function ExperimentSection({
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        {labelId && editing ? (
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={items.length > 0 && items.every((e) => selectedIds.has(e.id))}
+            onChange={() => onToggleAll(items.map((e) => e.id))}
+            className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+            title="Select all in this section"
+          />
+          {labelId && editing ? (
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -334,6 +355,7 @@ function ExperimentSection({
             <span className="ml-2 text-xs font-normal text-[var(--color-muted)]">{items.length}</span>
           </h2>
         )}
+        </div>
         {labelId && onDeleteLabel && (
           <button onClick={onDeleteLabel} className="text-xs text-[var(--color-muted)] hover:text-red-500">Remove label</button>
         )}
