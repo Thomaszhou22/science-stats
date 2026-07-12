@@ -25,67 +25,39 @@ function evaluate(expr: string): number {
 const GEOMETRY_FORMULAS = [
   {
     id: 'circle-area',
-    name: 'Circle Area (r)',
+    name: 'Circle Area',
     icon: '◯',
     inputs: [{ label: 'Radius r', default: '' }],
+    altInput: { label: 'Diameter d' },
     unit: '²',
     calc: (v: number[]) => Math.PI * v[0] ** 2,
   },
   {
-    id: 'circle-area-d',
-    name: 'Circle Area (d)',
-    icon: '◯',
-    inputs: [{ label: 'Diameter d', default: '' }],
-    unit: '²',
-    calc: (v: number[]) => Math.PI * (v[0] / 2) ** 2,
-  },
-  {
     id: 'circle-perim',
-    name: 'Circle Perimeter (r)',
+    name: 'Circle Perimeter',
     icon: '◯',
     inputs: [{ label: 'Radius r', default: '' }],
+    altInput: { label: 'Diameter d' },
     unit: '',
     calc: (v: number[]) => 2 * Math.PI * v[0],
   },
   {
-    id: 'circle-perim-d',
-    name: 'Circle Perimeter (d)',
-    icon: '◯',
-    inputs: [{ label: 'Diameter d', default: '' }],
-    unit: '',
-    calc: (v: number[]) => Math.PI * v[0],
-  },
-  {
     id: 'sphere-sa',
-    name: 'Sphere Surface Area (r)',
+    name: 'Sphere Surface Area',
     icon: '⬤',
     inputs: [{ label: 'Radius r', default: '' }],
+    altInput: { label: 'Diameter d' },
     unit: '²',
     calc: (v: number[]) => 4 * Math.PI * v[0] ** 2,
   },
   {
-    id: 'sphere-sa-d',
-    name: 'Sphere Surface Area (d)',
-    icon: '⬤',
-    inputs: [{ label: 'Diameter d', default: '' }],
-    unit: '²',
-    calc: (v: number[]) => Math.PI * v[0] ** 2,
-  },
-  {
     id: 'sphere-vol',
-    name: 'Sphere Volume (r)',
+    name: 'Sphere Volume',
     icon: '⬤',
     inputs: [{ label: 'Radius r', default: '' }],
+    altInput: { label: 'Diameter d' },
     unit: '³',
     calc: (v: number[]) => (4 / 3) * Math.PI * v[0] ** 3,
-  },
-  {
-    id: 'sphere-vol-d',
-    name: 'Sphere Volume (d)',
-    icon: '⬤',
-    inputs: [{ label: 'Diameter d', default: '' }],
-    unit: '³',
-    calc: (v: number[]) => (1 / 6) * Math.PI * v[0] ** 3,
   },
   {
     id: 'cylinder-vol',
@@ -204,16 +176,26 @@ export default function Calculator() {
     setExpr((prev) => prev + s)
   }
 
+  // Track whether using diameter input for circle/sphere formulas
+  const [useDiameter, setUseDiameter] = useState(() => {
+    try { return localStorage.getItem('calc-use-diameter') === 'true' } catch { return false }
+  })
+  useEffect(() => { localStorage.setItem('calc-use-diameter', String(useDiameter)) }, [useDiameter])
+
   const activeFormula = GEOMETRY_FORMULAS.find((f) => f.id === activeGeo)!
   const geoInputValues = geoInputs[activeGeo] || activeFormula.inputs.map((i) => i.default)
   const geoResult = useMemo(() => {
-    const nums = geoInputValues.map((v) => parseFloat(v))
+    let nums = geoInputValues.map((v) => parseFloat(v))
     if (nums.some((n) => isNaN(n))) return null
+    // If using diameter mode for circle/sphere, convert to radius
+    if (useDiameter && activeFormula.altInput) {
+      nums = nums.map((n) => n / 2)
+    }
     try {
       const r = activeFormula.calc(nums)
       return isNaN(r) ? null : r
     } catch { return null }
-  }, [geoInputValues, activeFormula])
+  }, [geoInputValues, activeFormula, useDiameter])
 
   function setGeoInput(idx: number, val: string) {
     setGeoInputs((prev) => {
@@ -350,24 +332,44 @@ export default function Calculator() {
 
           {/* Active formula inputs */}
           <div className="bg-gray-50 rounded-xl p-4">
-            <div className="flex items-center gap-2 mb-3">
-              <span className="text-xl font-mono">{activeFormula.icon}</span>
-              <h3 className="text-sm font-bold">{activeFormula.name}</h3>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <span className="text-xl font-mono">{activeFormula.icon}</span>
+                <h3 className="text-sm font-bold">{activeFormula.name}</h3>
+              </div>
+              {/* Radius / Diameter toggle */}
+              {activeFormula.altInput && (
+                <div className="flex items-center bg-white rounded-lg border border-[var(--color-border)] p-0.5">
+                  <button
+                    onClick={() => setUseDiameter(false)}
+                    className={`text-xs px-2.5 py-1 rounded-md transition-all ${!useDiameter ? 'bg-[var(--color-accent)] text-white font-semibold' : 'text-[var(--color-muted)]'}`}
+                  >Radius</button>
+                  <button
+                    onClick={() => setUseDiameter(true)}
+                    className={`text-xs px-2.5 py-1 rounded-md transition-all ${useDiameter ? 'bg-[var(--color-accent)] text-white font-semibold' : 'text-[var(--color-muted)]'}`}
+                  >Diameter</button>
+                </div>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3 mb-3">
-              {activeFormula.inputs.map((inp, idx) => (
-                <div key={idx}>
-                  <label className="text-xs text-[var(--color-muted)] block mb-1">{inp.label}</label>
-                  <input
-                    type="number"
-                    value={geoInputValues[idx] || ''}
-                    onChange={(e) => setGeoInput(idx, e.target.value)}
-                    placeholder="0"
-                    step="any"
-                    className="w-full text-sm font-mono border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
-                  />
-                </div>
-              ))}
+              {activeFormula.inputs.map((inp, idx) => {
+                const label = useDiameter && activeFormula.altInput && idx === 0
+                  ? activeFormula.altInput.label
+                  : inp.label
+                return (
+                  <div key={idx}>
+                    <label className="text-xs text-[var(--color-muted)] block mb-1">{label}</label>
+                    <input
+                      type="number"
+                      value={geoInputValues[idx] || ''}
+                      onChange={(e) => setGeoInput(idx, e.target.value)}
+                      placeholder="0"
+                      step="any"
+                      className="w-full text-sm font-mono border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                    />
+                  </div>
+                )
+              })}
             </div>
             {geoResult !== null && (
               <div className="flex items-center justify-between bg-[var(--color-accent)]/8 border border-[var(--color-accent)]/20 rounded-lg px-4 py-3">
