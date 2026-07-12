@@ -29,6 +29,10 @@ export default function ResultsView() {
 
   // ── Handlers ────────────────────────────────────
 
+  function renameEntry(id: string, label: string) {
+    setResults((prev) => prev.map((r) => r.id === id ? { ...r, label } : r))
+  }
+
   function deleteResult(id: string) {
     setResults((prev) => prev.filter((r) => r.id !== id))
     setSelectedIds((prev) => { const n = new Set(prev); n.delete(id); return n })
@@ -250,6 +254,7 @@ export default function ResultsView() {
           onToggle={toggleSelect}
           onExpand={setExpandedId}
           onDelete={deleteResult}
+          onRenameEntry={renameEntry}
           onAddVar={addVariable}
           onUpdateVar={updateVariable}
           onDeleteVar={deleteVariable}
@@ -268,6 +273,7 @@ export default function ResultsView() {
           onToggle={toggleSelect}
           onExpand={setExpandedId}
           onDelete={deleteResult}
+          onRenameEntry={renameEntry}
           onRenameLabel={(name) => renameLabel(label.id, name)}
           onDeleteLabel={() => deleteLabel(label.id)}
           onAddVar={addVariable}
@@ -284,7 +290,7 @@ export default function ResultsView() {
 function ExperimentSection({
   title, items, labelId, selectedIds, expandedId,
   onToggle, onExpand, onDelete,
-  onRenameLabel, onDeleteLabel,
+  onRenameLabel, onDeleteLabel, onRenameEntry,
   onAddVar, onUpdateVar, onDeleteVar,
 }: {
   title: string
@@ -297,12 +303,15 @@ function ExperimentSection({
   onDelete: (id: string) => void
   onRenameLabel?: (name: string) => void
   onDeleteLabel?: () => void
+  onRenameEntry?: (id: string, label: string) => void
   onAddVar: (expId: string, type: 'iv' | 'dv') => void
   onUpdateVar: (expId: string, varId: string, patch: Partial<Variable>) => void
   onDeleteVar: (expId: string, varId: string) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(title)
+  const [editingEntry, setEditingEntry] = useState<string | null>(null)
+  const [entryDraft, setEntryDraft] = useState('')
 
   return (
     <div>
@@ -348,10 +357,39 @@ function ExperimentSection({
                   />
                   <button
                     onClick={() => onExpand(expanded ? null : entry.id)}
-                    className="text-sm font-semibold hover:text-[var(--color-accent)]"
+                    className="text-sm font-semibold hover:text-[var(--color-accent)] flex items-center gap-1"
                   >
-                    {expanded ? '▼' : '▶'} {entry.label}
+                    {expanded ? '▼' : '▶'}
+                    {editingEntry === entry.id ? (
+                      <input
+                        value={entryDraft}
+                        onChange={(e) => setEntryDraft(e.target.value)}
+                        onBlur={() => {
+                          if (onRenameEntry && entryDraft.trim()) onRenameEntry(entry.id, entryDraft.trim())
+                          setEditingEntry(null)
+                        }}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') { if (onRenameEntry && entryDraft.trim()) onRenameEntry(entry.id, entryDraft.trim()); setEditingEntry(null) }
+                          if (e.key === 'Escape') setEditingEntry(null)
+                        }}
+                        autoFocus
+                        onClick={(e) => e.stopPropagation()}
+                        className="font-semibold bg-transparent border-b border-[var(--color-accent)] outline-none px-1 text-sm"
+                      />
+                    ) : (
+                      <span
+                        onDoubleClick={(e) => { e.stopPropagation(); setEditingEntry(entry.id); setEntryDraft(entry.label) }}
+                        title="Double-click to rename"
+                      >{entry.label}</span>
+                    )}
                   </button>
+                  {editingEntry !== entry.id && (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setEditingEntry(entry.id); setEntryDraft(entry.label) }}
+                      className="text-[10px] text-[var(--color-muted)] hover:text-[var(--color-accent)]"
+                      title="Rename"
+                    >✎</button>
+                  )}
                   <span className="text-xs text-[var(--color-muted)]">
                     {new Date(entry.ts).toLocaleDateString()}
                   </span>
