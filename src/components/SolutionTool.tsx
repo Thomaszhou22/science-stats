@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import { Card, Button, fmt } from './ui'
 
 interface Reagent {
@@ -70,6 +70,29 @@ function loadSolDigits(): number {
   } catch { return 2 }
 }
 
+// Numeric-only filter: allow digits and dot only
+const NUMERIC_RE = /^[0-9.]*$/
+
+// Move focus with arrow keys within a grid of inputs tagged data-row/data-col
+function useArrowNav() {
+  return useCallback((e: React.KeyboardEvent<HTMLInputElement>, row: number, col: number) => {
+    const key = e.key
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return
+    e.preventDefault()
+    let nr = row, nc = col
+    if (key === 'ArrowDown') nr++
+    else if (key === 'ArrowUp') nr = Math.max(0, row - 1)
+    else if (key === 'ArrowRight') nc++
+    else if (key === 'ArrowLeft') nc = Math.max(0, col - 1)
+    const target = document.querySelector(`input[data-row="${nr}"][data-col="${nc}"]`) as HTMLInputElement | null
+    if (target) {
+      target.focus()
+      // Place cursor at end
+      requestAnimationFrame(() => target.select())
+    }
+  }, [])
+}
+
 export default function SolutionTool() {
   const [reagents, setReagents] = useState<Reagent[]>(loadReagents)
   const [totalInput, setTotalInput] = useState(loadTotalInput)
@@ -94,6 +117,7 @@ export default function SolutionTool() {
   }, [digits])
 
   const lastEdit = useRef<'vol' | 'total' | 'fraction' | null>(null)
+  const onArrow = useArrowNav()
 
   const vols = reagents.map((r) => {
     const v = parseFloat(r.volML)
@@ -164,6 +188,8 @@ export default function SolutionTool() {
     setReagents((prev) => prev.map((r) => (r.id === id ? { ...r, name } : r)))
   }
   function updateReagentConc(id: string, concentration: string) {
+    // Only allow digits and dots
+    if (!NUMERIC_RE.test(concentration)) return
     setReagents((prev) => prev.map((r) => (r.id === id ? { ...r, concentration } : r)))
   }
 
@@ -254,6 +280,8 @@ export default function SolutionTool() {
                     <input
                       value={r.name}
                       onChange={(e) => updateReagentName(r.id, e.target.value)}
+                      data-row={i} data-col={0}
+                      onKeyDown={(e) => onArrow(e, i, 0)}
                       className="font-medium bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1.5 py-1 w-full min-w-[80px]"
                     />
                   </td>
@@ -261,7 +289,10 @@ export default function SolutionTool() {
                     <input
                       value={r.concentration}
                       onChange={(e) => updateReagentConc(r.id, e.target.value)}
-                      placeholder="e.g. 10 w/v%"
+                      data-row={i} data-col={1}
+                      onKeyDown={(e) => onArrow(e, i, 1)}
+                      placeholder="e.g. 10.5"
+                      inputMode="decimal"
                       className="text-xs text-[var(--color-muted)] font-mono bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1.5 py-1 w-full min-w-[100px]"
                     />
                   </td>
@@ -270,6 +301,8 @@ export default function SolutionTool() {
                       type="number"
                       value={r.volML}
                       onChange={(e) => editReagentVol(r.id, e.target.value)}
+                      data-row={i} data-col={2}
+                      onKeyDown={(e) => onArrow(e, i, 2)}
                       placeholder="0"
                       step="any"
                       className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
@@ -282,6 +315,8 @@ export default function SolutionTool() {
                       onChange={(e) => editReagentUL(r.id, e.target.value)}
                       onFocus={() => setUlFocused(r.id)}
                       onBlur={() => { setUlFocused(null); setUlDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
+                      data-row={i} data-col={3}
+                      onKeyDown={(e) => onArrow(e, i, 3)}
                       placeholder="0"
                       step="any"
                       className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
@@ -301,6 +336,8 @@ export default function SolutionTool() {
                         onChange={(e) => editFraction(r.id, e.target.value)}
                         onFocus={() => setFracFocused(r.id)}
                         onBlur={() => { setFracFocused(null); setFracDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
+                        data-row={i} data-col={4}
+                        onKeyDown={(e) => onArrow(e, i, 4)}
                         placeholder="0"
                         step="any"
                         className="text-right font-mono text-sm w-16 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"

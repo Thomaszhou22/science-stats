@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Card, Button, StatBox, fmt } from './ui'
@@ -71,6 +71,25 @@ function calcStats(values: number[]) {
   return { mean, std, sem, n }
 }
 
+// Arrow key navigation for group value inputs
+function useArrowNav() {
+  return useCallback((e: React.KeyboardEvent<HTMLInputElement>, groupIdx: number, valIdx: number, groupCount: number) => {
+    const key = e.key
+    if (!['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'].includes(key)) return
+    e.preventDefault()
+    let ng = groupIdx, nv = valIdx
+    if (key === 'ArrowDown') ng = Math.min(groupIdx + 1, groupCount - 1)
+    else if (key === 'ArrowUp') ng = Math.max(0, groupIdx - 1)
+    else if (key === 'ArrowRight') nv++
+    else if (key === 'ArrowLeft') nv = Math.max(0, valIdx - 1)
+    const target = document.querySelector(`input[data-grp="${ng}"][data-vidx="${nv}"]`) as HTMLInputElement | null
+    if (target) {
+      target.focus()
+      requestAnimationFrame(() => target.select())
+    }
+  }, [])
+}
+
 function loadGroups(): SampleGroup[] {
   try {
     const raw = localStorage.getItem('science-stats-groups')
@@ -112,6 +131,8 @@ export default function StatsTool() {
   // Cross-group analysis: select groups to compute mean/SD/SEM across their means
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
   const [showAnalysis, setShowAnalysis] = useState(false)
+
+  const onArrow = useArrowNav()
 
   const computed = useMemo(() => {
     return groups.map((g) => {
@@ -460,7 +481,7 @@ export default function StatsTool() {
       </div>
 
       {/* Group cards */}
-      {computed.map((r) => (
+      {computed.map((r, gi) => (
         <Card key={r.id} className={selectedGroupIds.has(r.id) ? 'ring-2 ring-[var(--color-accent)]/40' : ''}>
           <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
             <div className="flex items-center gap-2 flex-1">
@@ -516,6 +537,8 @@ export default function StatsTool() {
                   type="number"
                   value={val}
                   onChange={(e) => updateValue(r.id, idx, e.target.value)}
+                  data-grp={gi} data-vidx={idx}
+                  onKeyDown={(e) => onArrow(e, gi, idx, computed.length)}
                   placeholder={`#${idx + 1}`}
                   className="w-20 text-center text-sm font-mono border border-[var(--color-border)] rounded-lg px-2 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
                 />
