@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 import { Card, Button } from './ui'
@@ -461,19 +461,19 @@ function ExperimentSection({
                         {entry.groups.map((g, i) => (
                           <tr key={i} className="border-b border-[var(--color-border)] last:border-0">
                             <td className="py-1.5 pr-3 font-medium">{g.name}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{g.n}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{g.mean} {g.unit}</td>
-                            <td className="py-1.5 px-2 text-right font-mono text-[var(--color-muted)]">{g.std}</td>
-                            <td className="py-1.5 px-2 text-right font-mono text-[var(--color-muted)]">{g.sem}</td>
+                            <CopyCell value={g.n} />
+                            <CopyCell value={`${g.mean} ${g.unit}`} primary />
+                            <CopyCell value={g.std} />
+                            <CopyCell value={g.sem} />
                           </tr>
                         ))}
                         {entry.crossGroup && (
                           <tr className="bg-[var(--color-accent-light)]/30 font-bold">
                             <td className="py-1.5 pr-3">Cross-Group</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.n}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.mean.toFixed(4)}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.std.toFixed(4)}</td>
-                            <td className="py-1.5 px-2 text-right font-mono">{entry.crossGroup.sem.toFixed(4)}</td>
+                            <CopyCell value={entry.crossGroup.n} />
+                            <CopyCell value={Number(entry.crossGroup.mean.toFixed(4))} primary />
+                            <CopyCell value={Number(entry.crossGroup.std.toFixed(4))} />
+                            <CopyCell value={Number(entry.crossGroup.sem.toFixed(4))} />
                           </tr>
                         )}
                       </tbody>
@@ -486,5 +486,31 @@ function ExperimentSection({
         })}
       </div>
     </div>
+  )
+}
+
+// ── Click-to-copy number cell ─────────────────────
+
+function CopyCell({ value, primary = false }: { value: string | number; primary?: boolean }) {
+  const [copied, setCopied] = useState(false)
+  const copy = useCallback(() => {
+    const text = String(value)
+    navigator.clipboard.writeText(text).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1000)
+    })
+  }, [value])
+  return (
+    <td
+      onClick={copy}
+      className={`py-1.5 px-2 text-right font-mono cursor-pointer transition-all rounded select-none ${
+        primary
+          ? 'text-[var(--color-accent)] font-bold'
+          : 'text-[var(--color-muted)]'
+      } ${copied ? '!bg-green-100 !text-green-700' : 'hover:bg-gray-100'}`}
+      title={copied ? 'Copied!' : `Click to copy: ${value}`}
+    >
+      {value}{copied ? ' ✓' : ''}
+    </td>
   )
 }

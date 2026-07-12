@@ -2,14 +2,15 @@ import { useState } from 'react'
 import StatsTool from './components/StatsTool'
 import SolutionTool from './components/SolutionTool'
 import ResultsView from './components/ResultsView'
+import Calculator from './components/Calculator'
 
-type Tab = 'stats' | 'solution' | 'results'
+type Tab = 'stats' | 'solution' | 'results' | 'calc'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     try {
       const saved = localStorage.getItem('science-stats-tab') as Tab | null
-      return saved === 'stats' || saved === 'solution' || saved === 'results' ? saved : 'stats'
+      return saved === 'stats' || saved === 'solution' || saved === 'results' || saved === 'calc' ? saved : 'stats'
     } catch { return 'stats' }
   })
 
@@ -22,6 +23,7 @@ export default function App() {
     { key: 'stats', label: 'Statistics', icon: 'σ' },
     { key: 'solution', label: 'Solution Prep', icon: '⚗' },
     { key: 'results', label: 'Results', icon: '◆' },
+    { key: 'calc', label: 'Calculator', icon: '⊞' },
   ]
 
   return (
@@ -54,6 +56,7 @@ export default function App() {
         {tab === 'stats' && <StatsTool />}
         {tab === 'solution' && <SolutionTool />}
         {tab === 'results' && <ResultsView />}
+        {tab === 'calc' && <Calculator />}
       </main>
     </div>
   )
