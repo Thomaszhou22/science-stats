@@ -421,14 +421,6 @@ export default function Calculator() {
             </div>
           </Card>
         )}
-
-        {/* Quick reference */}
-        <Card className="bg-[var(--color-accent-light)] border-[var(--color-accent)]/20">
-          <h3 className="text-xs font-bold mb-2">Supported Functions</h3>
-          <p className="text-xs text-[var(--color-muted)] font-mono leading-relaxed">
-            sin, cos, tan, asin, acos, atan, sinh, cosh, tanh, log (base 10), ln (natural), log2, exp, sqrt, cbrt, abs, floor, ceil, round, pow, max, min, sign, pi, e
-          </p>
-        </Card>
       </div>
 
       {/* Geometry shortcuts */}
