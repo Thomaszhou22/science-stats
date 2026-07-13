@@ -497,8 +497,8 @@ export default function Calculator() {
             {/* Unit selector */}
             <div className="mb-3">
               <label className="text-xs text-[var(--color-muted)] block mb-1">Input length unit</label>
-              <div className="flex gap-1">
-                {(['mm', 'cm', 'dm', 'm'] as const).map((u) => (
+              <div className="flex gap-1 flex-wrap items-center">
+                {(['nm', 'μm', 'mm', 'cm', 'dm', 'm'] as const).map((u) => (
                   <button
                     key={u}
                     onClick={() => setGeoUnit(u)}
@@ -509,6 +509,19 @@ export default function Calculator() {
                     }`}
                   >{u}</button>
                 ))}
+                {!(['nm', 'μm', 'mm', 'cm', 'dm', 'm'] as const).includes(geoUnit as any) && (
+                  <span className="text-xs px-2.5 py-1 rounded-md bg-[var(--color-accent)] text-white font-semibold">
+                    {geoUnit}
+                  </span>
+                )}
+                <input
+                  type="text"
+                  value={geoUnit}
+                  onChange={(e) => setGeoUnit(e.target.value)}
+                  placeholder="custom"
+                  className="text-xs font-mono w-20 border border-[var(--color-border)] rounded-md px-2 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                  title="Type a custom unit (no auto-scaling)"
+                />
               </div>
             </div>
             {geoResult !== null && geoScaled && (
