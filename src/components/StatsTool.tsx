@@ -79,11 +79,15 @@ export default function StatsTool() {
     try { return localStorage.getItem('science-stats-exp-label') || '' } catch { return '' }
   })
 
-  // Saved results (shared with ResultsView via localStorage)
   const [results, setResults] = useState<ExperimentEntry[]>(loadResults)
 
-  // Cross-group analysis
+  // Selected groups (for both cross-group analysis and saving)
   const [selectedGroupIds, setSelectedGroupIds] = useState<Set<string>>(new Set())
+
+  // Cross-group: manual calculation
+  const [crossGroupResult, setCrossGroupResult] = useState<{ mean: number; std: number; sem: number; n: number } | null>(null)
+  const [includeCrossGroup, setIncludeCrossGroup] = useState(false)
+  const [saved, setSaved] = useState(false)
 
   const onArrow = useArrowNav()
 
@@ -93,13 +97,6 @@ export default function StatsTool() {
       return { ...g, stats: calcStats(nums) }
     })
   }, [groups])
-
-  const summary = useMemo(() => {
-    const selected = computed.filter((r) => r.stats && selectedGroupIds.has(r.id))
-    const means = selected.map((r) => r.stats!.mean)
-    if (means.length === 0) return null
-    return { ...calcStats(means)!, groupNames: selected.map((r) => r.name) }
-  }, [computed, selectedGroupIds])
 
   const validGroups = computed.filter((r) => r.stats)
 
@@ -111,11 +108,23 @@ export default function StatsTool() {
 
   function toggleSelectGroup(id: string) {
     setSelectedGroupIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
+    // Reset cross-group result when selection changes
+    setCrossGroupResult(null)
+    setIncludeCrossGroup(false)
   }
   function selectAllGroups() {
     if (validGroups.length === 0) return
     const allSelected = validGroups.every((r) => selectedGroupIds.has(r.id))
     setSelectedGroupIds(allSelected ? new Set() : new Set(validGroups.map((r) => r.id)))
+    setCrossGroupResult(null)
+    setIncludeCrossGroup(false)
+  }
+
+  function calcCrossGroup() {
+    const selected = computed.filter((r) => r.stats && selectedGroupIds.has(r.id))
+    const means = selected.map((r) => r.stats!.mean)
+    if (means.length < 2) return
+    setCrossGroupResult(calcStats(means))
   }
 
   function updateValue(groupId: string, idx: number, val: string) {
@@ -149,10 +158,14 @@ export default function StatsTool() {
       { id: 'g-r3', name: 'Group 3', unit: 'mm', values: ['', '', '', '', ''] },
     ])
     setSelectedGroupIds(new Set())
+    setCrossGroupResult(null)
+    setIncludeCrossGroup(false)
   }
 
   function saveExperiment() {
-    const groupStats: GroupStat[] = validGroups.map((r) => ({
+    const selected = validGroups.filter((r) => selectedGroupIds.has(r.id))
+    if (selected.length === 0) return
+    const groupStats: GroupStat[] = selected.map((r) => ({
       name: r.name,
       unit: r.unit,
       mean: parseFloat(fmt(r.stats!.mean, digits)),
@@ -160,12 +173,12 @@ export default function StatsTool() {
       sem: parseFloat(fmt(r.stats!.sem, digits)),
       n: r.stats!.n,
     }))
-    const measurementUnit = validGroups[0]?.unit || 'mm'
+    const measurementUnit = selected[0]?.unit || 'mm'
     const entry: ExperimentEntry = {
       id: `exp-${Date.now()}`,
       label: expLabel.trim() || `Experiment ${new Date().toLocaleDateString()}`,
       groups: groupStats,
-      crossGroup: summary ? { mean: summary.mean, std: summary.std, sem: summary.sem, n: summary.n } : null,
+      crossGroup: includeCrossGroup && crossGroupResult ? crossGroupResult : null,
       measurementUnit,
       variables: [],
       ts: Date.now(),
@@ -174,6 +187,8 @@ export default function StatsTool() {
     const next = [entry, ...results]
     setResults(next)
     saveResults(next)
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1500)
   }
 
   return (
@@ -209,8 +224,15 @@ export default function StatsTool() {
               {[2, 3, 4, 5, 6].map((d) => (<option key={d} value={d}>{d}</option>))}
             </select>
           </div>
-          <Button onClick={saveExperiment} disabled={validGroups.length === 0} className={validGroups.length === 0 ? 'opacity-40 cursor-not-allowed' : ''}>
-            Save to Results
+          {selectedGroupIds.size > 0 && (
+            <span className="text-xs text-[var(--color-muted)]">{selectedGroupIds.size} selected</span>
+          )}
+          <Button
+            onClick={saveExperiment}
+            disabled={selectedGroupIds.size === 0}
+            className={selectedGroupIds.size === 0 ? 'opacity-40 cursor-not-allowed' : saved ? '!bg-green-500' : ''}
+          >
+            {saved ? 'Saved ✓' : `Save to Results${selectedGroupIds.size > 0 ? ` (${selectedGroupIds.size})` : ''}`}
           </Button>
         </div>
       </Card>
@@ -226,7 +248,7 @@ export default function StatsTool() {
                 onChange={() => toggleSelectGroup(r.id)}
                 disabled={!r.stats}
                 className={`w-4 h-4 accent-[var(--color-accent)] cursor-pointer ${!r.stats ? 'opacity-30 cursor-not-allowed' : ''}`}
-                title={r.stats ? 'Select for cross-group analysis' : 'Enter data first'}
+                title={r.stats ? 'Select for saving and cross-group analysis' : 'Enter data first'}
               />
               <input
                 value={r.name}
@@ -302,22 +324,44 @@ export default function StatsTool() {
             <h2 className="text-sm font-bold">Cross-Group Analysis</h2>
             <span className="text-xs text-[var(--color-muted)]">{selectedGroupIds.size} selected</span>
           </div>
-          <button onClick={selectAllGroups} className="text-xs text-[var(--color-accent)] hover:underline">
-            {validGroups.length > 0 && validGroups.every((r) => selectedGroupIds.has(r.id)) ? 'Deselect All' : 'Select All'}
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={selectAllGroups} className="text-xs text-[var(--color-accent)] hover:underline">
+              {validGroups.length > 0 && validGroups.every((r) => selectedGroupIds.has(r.id)) ? 'Deselect All' : 'Select All'}
+            </button>
+            {selectedGroupIds.size >= 2 && (
+              <Button size="sm" onClick={calcCrossGroup} disabled={crossGroupResult !== null}>
+                {crossGroupResult ? 'Calculated' : 'Calculate'}
+              </Button>
+            )}
+          </div>
         </div>
 
         {selectedGroupIds.size < 2 ? (
           <p className="text-xs text-[var(--color-muted)]">
-            Check the box on each group card to compute Mean, SD, and SEM across selected groups' means.
+            Select 2 or more groups, then click Calculate to compute Mean, SD, and SEM across their means.
           </p>
+        ) : crossGroupResult ? (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <StatBox label="N (groups)" value={`${crossGroupResult.n}`} />
+              <StatBox label="Grand Mean" value={fmt(crossGroupResult.mean, digits)} highlight />
+              <StatBox label="Inter-Group SD" value={fmt(crossGroupResult.std, digits)} />
+              <StatBox label="Inter-Group SEM" value={fmt(crossGroupResult.sem, digits)} />
+            </div>
+            <label className="flex items-center gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeCrossGroup}
+                onChange={(e) => setIncludeCrossGroup(e.target.checked)}
+                className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+              />
+              Include cross-group analysis when saving to Results
+            </label>
+          </>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <StatBox label="N (groups)" value={`${summary?.n ?? selectedGroupIds.size}`} />
-            <StatBox label="Grand Mean" value={summary ? fmt(summary.mean, digits) : '—'} highlight />
-            <StatBox label="Inter-Group SD" value={summary ? fmt(summary.std, digits) : '—'} />
-            <StatBox label="Inter-Group SEM" value={summary ? fmt(summary.sem, digits) : '—'} />
-          </div>
+          <p className="text-xs text-[var(--color-muted)]">
+            Click <span className="font-semibold text-[var(--color-accent)]">Calculate</span> to compute cross-group statistics.
+          </p>
         )}
       </Card>
     </div>
