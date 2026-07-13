@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef } from 'react'
 import { Card, Button } from './ui'
 import { type ExperimentEntry, loadResults, saveResults } from '../lib/experiment'
 
@@ -222,6 +222,8 @@ export default function Calculator() {
     }
   }, [expr, digits])
 
+  const exprRef = useRef<HTMLInputElement>(null)
+
   function handleCalc() {
     if (!expr.trim() || result === 'Error') return
     setHistory((prev) => [{ expr, result }, ...prev].slice(0, 20))
@@ -275,6 +277,17 @@ export default function Calculator() {
 
   function appendToExpr(s: string) {
     setExpr((prev) => prev + s)
+    refocusExpr()
+  }
+
+  function refocusExpr() {
+    requestAnimationFrame(() => {
+      const el = exprRef.current
+      if (!el) return
+      el.focus()
+      const pos = el.value.length
+      el.setSelectionRange(pos, pos)
+    })
   }
 
   // Track whether using diameter input for circle/sphere formulas
@@ -339,6 +352,7 @@ export default function Calculator() {
           {/* Display */}
           <div className="mb-3">
             <input
+              ref={exprRef}
               value={expr}
               onChange={(e) => setExpr(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleCalc()}
@@ -379,8 +393,8 @@ export default function Calculator() {
               <button
                 key={btn.l}
                 onClick={() => {
-                  if (btn.v === 'CLEAR') setExpr('')
-                  else if (btn.v === 'BACK') setExpr((prev) => prev.slice(0, -1))
+                  if (btn.v === 'CLEAR') { setExpr(''); refocusExpr() }
+                  else if (btn.v === 'BACK') { setExpr((prev) => prev.slice(0, -1)); refocusExpr() }
                   else if (btn.v === 'ENTER') handleCalc()
                   else appendToExpr(btn.v)
                 }}
