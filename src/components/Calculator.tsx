@@ -196,6 +196,7 @@ export default function Calculator() {
   const [results, setResults] = useState<ExperimentEntry[]>(loadResults)
   const [calcSaved, setCalcSaved] = useState(false)
   const [geoSaved, setGeoSaved] = useState(false)
+  const [showFormulas, setShowFormulas] = useState(false)
 
   // Geometry state
   const [geoInputs, setGeoInputs] = useState<Record<string, string[]>>(() => {
@@ -553,20 +554,27 @@ export default function Calculator() {
             )}
           </div>
         </Card>
-
         {/* Formula reference */}
         <Card className="bg-[var(--color-accent-light)] border-[var(--color-accent)]/20">
-          <h3 className="text-xs font-bold mb-2">Formula Reference</h3>
-          <div className="grid grid-cols-1 gap-1 text-xs font-mono text-[var(--color-muted)]">
-            <div>Circle Area: πr²</div>
-            <div>Circle Perimeter: 2πr</div>
-            <div>Sphere Volume: ⁴⁄₃πr³</div>
-            <div>Sphere SA: 4πr²</div>
-            <div>Cylinder Volume: πr²h</div>
-            <div>Cone Volume: ⅓πr²h</div>
-            <div>Triangle Area: ½bh</div>
-            <div>Trapezoid Area: ½(a+b)h</div>
-          </div>
+          <button
+            onClick={() => setShowFormulas(v => !v)}
+            className="flex items-center justify-between w-full"
+          >
+            <h3 className="text-xs font-bold">Formula Reference</h3>
+            <span className="text-xs text-[var(--color-muted)]">{showFormulas ? '▼' : '▶'}</span>
+          </button>
+          {showFormulas && (
+            <div className="grid grid-cols-1 gap-1 text-xs font-mono text-[var(--color-muted)] mt-2">
+              <div>Circle Area: πr²</div>
+              <div>Circle Perimeter: 2πr</div>
+              <div>Sphere Volume: ⁴⁄₃πr³</div>
+              <div>Sphere SA: 4πr²</div>
+              <div>Cylinder Volume: πr²h</div>
+              <div>Cone Volume: ⅓πr²h</div>
+              <div>Triangle Area: ½bh</div>
+              <div>Trapezoid Area: ½(a+b)h</div>
+            </div>
+          )}
         </Card>
       </div>
     </div>
