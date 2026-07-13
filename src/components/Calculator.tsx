@@ -319,6 +319,18 @@ export default function Calculator() {
   }
 
   return (
+    <div className="space-y-4">
+    {/* Page-level decimal places selector */}
+    <div className="flex justify-end items-center gap-2">
+      <label className="text-xs text-[var(--color-muted)]">Decimal Places</label>
+      <select
+        value={digits}
+        onChange={(e) => setDigits(Number(e.target.value))}
+        className="text-xs border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white cursor-pointer outline-none"
+      >
+        {[2, 4, 6, 8, 10].map((d) => <option key={d} value={d}>{d} dp</option>)}
+      </select>
+    </div>
     <div className="grid md:grid-cols-2 gap-6">
       {/* Calculator */}
       <div className="space-y-4">
@@ -339,13 +351,6 @@ export default function Calculator() {
                 {result && result !== 'Error' ? `= ${result}` : result === 'Error' ? 'Error' : ''}
               </div>
               <div className="flex items-center gap-2">
-                <select
-                  value={digits}
-                  onChange={(e) => setDigits(Number(e.target.value))}
-                  className="text-xs border border-[var(--color-border)] rounded-lg px-2 py-1 bg-white cursor-pointer outline-none"
-                >
-                  {[2, 4, 6, 8, 10].map((d) => <option key={d} value={d}>{d} dp</option>)}
-                </select>
                 {result && result !== 'Error' && (
                   <Button size="sm" variant="outline" onClick={saveExprToResults} className={calcSaved ? '!text-green-600 !border-green-400' : ''}>
                     {calcSaved ? 'Saved \u2713' : 'Save to Results'}
@@ -545,6 +550,7 @@ export default function Calculator() {
           </div>
         </Card>
       </div>
+    </div>
     </div>
   )
 }
