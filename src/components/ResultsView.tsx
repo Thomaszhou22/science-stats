@@ -4,7 +4,7 @@ import autoTable from 'jspdf-autotable'
 import { Card, Button } from './ui'
 import { UnitPicker } from './UnitPicker'
 import {
-  type ExperimentEntry, type LabelItem, type Variable,
+  type ExperimentEntry, type LabelItem, type Variable, type GroupStat,
   loadResults, saveResults, loadLabels, saveLabels,
 } from '../lib/experiment'
 
@@ -65,6 +65,44 @@ export default function ResultsView() {
     setResults((prev) => prev.map((r) => selectedIds.has(r.id) ? { ...r, savedLabelId: assignLabelId } : r))
     setSelectedIds(new Set())
     setAssignLabelId('')
+  }
+
+  function mergeSelected() {
+    const selected = results.filter((r) => selectedIds.has(r.id))
+    if (selected.length < 2) return
+    const allGroups: GroupStat[] = []
+    const allVariables: Variable[] = []
+    const measurementUnit = selected[0].measurementUnit
+    selected.forEach((exp) => {
+      allGroups.push(...exp.groups)
+      allVariables.push(...exp.variables)
+    })
+    // Recalculate cross-group if units match
+    const units = new Set(allGroups.map((g) => g.unit))
+    let crossGroup: { mean: number; std: number; sem: number; n: number } | null = null
+    if (units.size === 1 && allGroups.length > 1) {
+      const means = allGroups.map((g) => g.mean)
+      const n = means.length
+      const mean = means.reduce((a, b) => a + b, 0) / n
+      const variance = n > 1 ? means.reduce((s, m) => s + (m - mean) ** 2, 0) / (n - 1) : 0
+      const std = Math.sqrt(variance)
+      const sem = n > 0 ? std / Math.sqrt(n) : 0
+      crossGroup = { mean, std, sem, n }
+    }
+    const merged: ExperimentEntry = {
+      id: `merged-${Date.now()}`,
+      label: `Merged (${selected.length} experiments)`,
+      groups: allGroups,
+      crossGroup,
+      measurementUnit,
+      variables: allVariables,
+      ts: Date.now(),
+      savedLabelId: null,
+    }
+    const next = [merged, ...results.filter((r) => !selectedIds.has(r.id))]
+    setResults(next)
+    saveResults(next)
+    setSelectedIds(new Set())
   }
 
   function toggleSelect(id: string) {
@@ -217,6 +255,12 @@ export default function ResultsView() {
                 {labels.map((l) => (<option key={l.id} value={l.id}>{l.name}</option>))}
               </select>
               <Button size="sm" onClick={assignSelected} disabled={!assignLabelId}>Assign</Button>
+              {selectedIds.size >= 2 && (
+                <>
+                  <div className="w-px h-6 bg-[var(--color-border)] mx-1" />
+                  <Button size="sm" variant="outline" onClick={mergeSelected}>Merge Selected ({selectedIds.size})</Button>
+                </>
+              )}
             </>
           )}
 

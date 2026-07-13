@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect } from 'react'
-import { Card } from './ui'
+import { Card, Button } from './ui'
+import { type ExperimentEntry, loadResults, saveResults } from '../lib/experiment'
 
 // ── Safe expression evaluator ────────────────────
 
@@ -192,6 +193,9 @@ export default function Calculator() {
   const [digits, setDigits] = useState(() => {
     try { const raw = localStorage.getItem('calc-digits'); return raw ? JSON.parse(raw) : 6 } catch { return 6 }
   })
+  const [results, setResults] = useState<ExperimentEntry[]>(loadResults)
+  const [calcSaved, setCalcSaved] = useState(false)
+  const [geoSaved, setGeoSaved] = useState(false)
 
   // Geometry state
   const [geoInputs, setGeoInputs] = useState<Record<string, string[]>>(() => {
@@ -225,6 +229,48 @@ export default function Calculator() {
 
   function clearHistory() {
     setHistory([])
+  }
+
+  function saveExprToResults() {
+    if (!expr.trim() || result === 'Error' || !result) return
+    const entry: ExperimentEntry = {
+      id: `calc-${Date.now()}`,
+      label: `Calc: ${expr}`,
+      groups: [{ name: 'Result', unit: '', mean: parseFloat(result), std: 0, sem: 0, n: 1 }],
+      crossGroup: null,
+      measurementUnit: '',
+      variables: [],
+      ts: Date.now(),
+      savedLabelId: null,
+    }
+    const next = [entry, ...results]
+    setResults(next)
+    saveResults(next)
+    setCalcSaved(true)
+    setTimeout(() => setCalcSaved(false), 1500)
+  }
+
+  function saveGeoToResults() {
+    if (geoResult === null || !geoScaled) return
+    const inputDesc = activeFormula.inputs.map((inp, idx) => {
+      const label = useDiameter && activeFormula.altInput && idx === 0 ? activeFormula.altInput.label : inp.label
+      return `${label}=${geoInputValues[idx]} ${geoUnit}`
+    }).join(', ')
+    const entry: ExperimentEntry = {
+      id: `geo-${Date.now()}`,
+      label: `${activeFormula.name} (${inputDesc})`,
+      groups: [{ name: activeFormula.name, unit: geoScaled.unit, mean: parseFloat(geoScaled.formatted), std: 0, sem: 0, n: 1 }],
+      crossGroup: null,
+      measurementUnit: geoScaled.unit,
+      variables: [],
+      ts: Date.now(),
+      savedLabelId: null,
+    }
+    const next = [entry, ...results]
+    setResults(next)
+    saveResults(next)
+    setGeoSaved(true)
+    setTimeout(() => setGeoSaved(false), 1500)
   }
 
   function appendToExpr(s: string) {
@@ -300,6 +346,11 @@ export default function Calculator() {
                 >
                   {[2, 4, 6, 8, 10].map((d) => <option key={d} value={d}>{d} dp</option>)}
                 </select>
+                {result && result !== 'Error' && (
+                  <Button size="sm" variant="outline" onClick={saveExprToResults} className={calcSaved ? '!text-green-600 !border-green-400' : ''}>
+                    {calcSaved ? 'Saved \u2713' : 'Save to Results'}
+                  </Button>
+                )}
               </div>
             </div>
           </div>
@@ -456,6 +507,7 @@ export default function Calculator() {
               </div>
             </div>
             {geoResult !== null && geoScaled && (
+              <>
               <div
                 onClick={() => {
                   navigator.clipboard.writeText(geoScaled.copyText)
@@ -470,6 +522,10 @@ export default function Calculator() {
                   {geoCopied ? 'Copied ✓' : <>{geoScaled.formatted} <span className="text-sm font-normal ml-1">{geoScaled.unit}</span>{geoScaled.extra && <span className="text-xs font-normal text-[var(--color-muted)] ml-2">{geoScaled.extra}</span>}</>}
                 </span>
               </div>
+              <Button size="sm" variant="outline" onClick={saveGeoToResults} className={`w-full mt-2 ${geoSaved ? '!text-green-600 !border-green-400' : ''}`}>
+                {geoSaved ? 'Saved ✓' : 'Save to Results'}
+              </Button>
+            </>
             )}
           </div>
         </Card>
