@@ -142,7 +142,7 @@ function getFormulaPower(unitStr: string): number {
 }
 
 function autoScaleGeo(rawValue: number, inputUnit: string, power: number, digits: number) {
-  const startIdx = GEO_LENGTH_CHAIN.indexOf(inputUnit)
+  const startIdx = GEO_LENGTH_CHAIN.indexOf(inputUnit as typeof GEO_LENGTH_CHAIN[number])
   if (startIdx === -1) {
     const formatted = rawValue.toFixed(digits).replace(/\.?0+$/, '')
     return { formatted, unit: inputUnit + SUP_MAP[power], copyText: `${formatted} ${inputUnit}${SUP_MAP[power]}`, extra: '' }
@@ -427,11 +427,11 @@ export default function Calculator() {
                   <div key={idx}>
                     <label className="text-xs text-[var(--color-muted)] block mb-1">{label}</label>
                     <input
-                      type="number"
+                      type="text"
                       value={geoInputValues[idx] || ''}
                       onChange={(e) => setGeoInput(idx, e.target.value)}
                       placeholder="0"
-                      step="any"
+                      inputMode="decimal"
                       className="w-full text-sm font-mono border border-[var(--color-border)] rounded-lg px-3 py-2 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
                     />
                   </div>
