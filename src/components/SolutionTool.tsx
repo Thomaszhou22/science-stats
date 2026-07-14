@@ -5,8 +5,6 @@ import {
   loadResults, saveResults,
 } from '../lib/experiment'
 
-// ── Types ────────────────────────────────────────
-
 interface Reagent {
   id: string
   name: string
@@ -15,13 +13,13 @@ interface Reagent {
 }
 
 interface DilState {
+  id: string
+  reagentId: string
   c1: string
   v1: string
   c2: string
   v2: string
 }
-
-// ── localStorage helpers ─────────────────────────
 
 let reagentCounter = 0
 function newReagent(): Reagent {
@@ -96,15 +94,16 @@ export default function SolutionTool() {
   const [ulDraft, setUlDraft] = useState<Record<string, string>>({})
   const [ulFocused, setUlFocused] = useState<string | null>(null)
 
-  // Save to Results
   const [results, setResults] = useState<ExperimentEntry[]>(loadResults)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [saveLabel, setSaveLabel] = useState('')
   const [saved, setSaved] = useState(false)
 
-  // Per-reagent dilution expansion
-  const [expandedDil, setExpandedDil] = useState<Set<string>>(new Set())
-  const [dilStates, setDilStates] = useState<Record<string, DilState>>({})
+  // Dilution rows (shown below Total Volume)
+  const [dilRows, setDilRows] = useState<DilState[]>([])
+  // Pending confirm for reagent
+  const [pendingDilReagent, setPendingDilReagent] = useState<string | null>(null)
+
   const [concUnit, setConcUnit] = useState(() => { try { return localStorage.getItem('science-solution-conc-unit') || 'mol/L' } catch { return 'mol/L' } })
 
   useEffect(() => { localStorage.setItem('science-solution-reagents', JSON.stringify(reagents)) }, [reagents])
@@ -170,15 +169,15 @@ export default function SolutionTool() {
   function addReagent() { setReagents((prev) => [...prev, newReagent()]) }
   function removeReagent(id: string) {
     setReagents((prev) => prev.filter((r) => r.id !== id))
-    setExpandedDil((prev) => { const n = new Set(prev); n.delete(id); return n })
+    // Also remove associated dilution rows
+    setDilRows((prev) => prev.filter((d) => d.reagentId !== id))
   }
   function resetToPresets() {
     setReagents(makePresets())
     setTotalInput('')
     setFracDraft({})
     setUlDraft({})
-    setExpandedDil(new Set())
-    setDilStates({})
+    setDilRows([])
   }
 
   function updateReagentName(id: string, name: string) {
@@ -193,43 +192,49 @@ export default function SolutionTool() {
     setSelectedIds((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
   }
 
-  // ── Dilution per reagent ─────────────────────────
+  // ── Dilution handlers ────────────────────────────
 
-  function toggleDilExpansion(reagentId: string) {
-    setExpandedDil((prev) => {
-      const n = new Set(prev)
-      if (n.has(reagentId)) {
-        n.delete(reagentId)
-      } else {
-        n.add(reagentId)
-        // Initialize dilution state from reagent data
-        const r = reagents.find((x) => x.id === reagentId)
-        if (r && !dilStates[reagentId]) {
-          setDilStates((prev2) => ({
-            ...prev2,
-            [reagentId]: {
-              c1: '',
-              v1: r.volML || '',
-              c2: r.concentration || '',
-              v2: '',
-            },
-          }))
-        }
-      }
-      return n
-    })
+  function clickDilArrow(reagentId: string) {
+    // Check if this reagent already has a dilution row
+    const existing = dilRows.find((d) => d.reagentId === reagentId)
+    if (existing) {
+      // Toggle: remove it
+      setDilRows((prev) => prev.filter((d) => d.id !== existing.id))
+    } else {
+      // Show confirm dialog
+      setPendingDilReagent(reagentId)
+    }
   }
 
-  function updateDilField(reagentId: string, field: keyof DilState, value: string) {
+  function confirmAddDil() {
+    if (!pendingDilReagent) return
+    const r = reagents.find((x) => x.id === pendingDilReagent)
+    if (!r) { setPendingDilReagent(null); return }
+    const newDil: DilState = {
+      id: `dil-${Date.now()}`,
+      reagentId: r.id,
+      c1: '',
+      v1: r.volML || '',
+      c2: r.concentration || '',
+      v2: '',
+    }
+    setDilRows((prev) => [...prev, newDil])
+    setPendingDilReagent(null)
+  }
+
+  function cancelAddDil() { setPendingDilReagent(null) }
+
+  function removeDilRow(dilId: string) {
+    setDilRows((prev) => prev.filter((d) => d.id !== dilId))
+  }
+
+  function updateDilField(dilId: string, field: keyof Omit<DilState, 'id' | 'reagentId'>, value: string) {
     if (value !== '' && !NUMERIC_RE.test(value)) return
-    setDilStates((prev) => ({
-      ...prev,
-      [reagentId]: { ...prev[reagentId], [field]: value },
-    }))
+    setDilRows((prev) => prev.map((d) => d.id === dilId ? { ...d, [field]: value } : d))
   }
 
-  function calcDilution(reagentId: string) {
-    const ds = dilStates[reagentId]
+  function calcDilution(dilId: string) {
+    const ds = dilRows.find((d) => d.id === dilId)
     if (!ds) return
     const c1n = parseFloat(ds.c1), v1n = parseFloat(ds.v1), c2n = parseFloat(ds.c2), v2n = parseFloat(ds.v2)
     const vals = { c1: c1n, v1: v1n, c2: c2n, v2: v2n }
@@ -246,19 +251,14 @@ export default function SolutionTool() {
     if (isNaN(result) || !isFinite(result)) return
 
     const formatted = fmt(result, digits)
-    setDilStates((prev) => ({
-      ...prev,
-      [reagentId]: { ...prev[reagentId], [missing]: formatted },
-    }))
+    setDilRows((prev) => prev.map((d) => d.id === dilId ? { ...d, [missing]: formatted } : d))
 
     // Sync results back to reagent
-    // C2 = final concentration → reagent concentration
-    // V1 = stock volume needed → reagent volume
     const finalC2 = missing === 'c2' ? formatted : ds.c2
     const finalV1 = missing === 'v1' ? formatted : ds.v1
 
     setReagents((prev) => prev.map((r) => {
-      if (r.id !== reagentId) return r
+      if (r.id !== ds.reagentId) return r
       return {
         ...r,
         concentration: finalC2 || r.concentration,
@@ -307,11 +307,10 @@ export default function SolutionTool() {
     <div className="space-y-6">
       <Card className="bg-[var(--color-accent-light)] border-[var(--color-accent)]/20">
         <p className="text-sm text-[var(--color-text)]">
-          Edit any field and the rest update automatically. Click a reagent name to expand a dilution calculator (C1V1=C2V2) for that reagent.
+          Edit any field and the rest update automatically. Click ▶ next to a reagent to add a dilution calculator (C1V1=C2V2).
         </p>
       </Card>
 
-      {/* Decimal places */}
       <div className="flex items-center justify-end gap-2">
         <label className="text-xs text-[var(--color-muted)]">Decimals</label>
         <select
@@ -349,176 +348,102 @@ export default function SolutionTool() {
               const computedUL = vols[i] > 0 ? fmt(vols[i] * 1000, digits) : ''
               const ulDisplay = ulFocused === r.id ? (ulDraft[r.id] ?? '') : computedUL
               const fracDisplay = fracFocused === r.id ? (fracDraft[r.id] ?? '') : (vols[i] > 0 ? fmt(pct, digits) : '')
-              const isExpanded = expandedDil.has(r.id)
-              const ds = dilStates[r.id]
+              const hasDil = dilRows.some((d) => d.reagentId === r.id)
 
               return (
-                <>
-                  <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0 group">
-                    <td className="py-2.5 pr-1 text-center">
-                      <input
-                        type="checkbox"
-                        checked={selectedIds.has(r.id)}
-                        onChange={() => toggleSelect(r.id)}
-                        className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
-                      />
-                    </td>
-                    <td className="py-2.5 pr-3">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() => toggleDilExpansion(r.id)}
-                          className={`text-xs transition-all ${isExpanded ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)] hover:text-[var(--color-accent)]'}`}
-                          title="Dilution calculator"
-                        >{isExpanded ? '▼' : '▶'}</button>
-                        <input
-                          value={r.name}
-                          onChange={(e) => updateReagentName(r.id, e.target.value)}
-                          data-row={i} data-col={0}
-                          onKeyDown={(e) => onArrow(e, i, 0)}
-                          className="font-medium bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1.5 py-1 w-full min-w-[80px]"
-                        />
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3">
-                      <input
-                        value={r.concentration}
-                        onChange={(e) => updateReagentConc(r.id, e.target.value)}
-                        data-row={i} data-col={1}
-                        onKeyDown={(e) => onArrow(e, i, 1)}
-                        placeholder="e.g. 10.5"
-                        inputMode="decimal"
-                        className="text-xs text-[var(--color-muted)] font-mono bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1.5 py-1 w-full min-w-[100px]"
-                      />
-                    </td>
-                    <td className="py-2 px-1 text-right">
-                      <input
-                        type="number"
-                        value={r.volML}
-                        onChange={(e) => editReagentVol(r.id, e.target.value)}
-                        data-row={i} data-col={2}
-                        onKeyDown={(e) => onArrow(e, i, 2)}
-                        placeholder="0"
-                        step="any"
-                        className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
-                      />
-                    </td>
-                    <td className="py-2 px-1 text-right">
-                      <input
-                        type="number"
-                        value={ulDisplay}
-                        onChange={(e) => editReagentUL(r.id, e.target.value)}
-                        onFocus={() => setUlFocused(r.id)}
-                        onBlur={() => { setUlFocused(null); setUlDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
-                        data-row={i} data-col={3}
-                        onKeyDown={(e) => onArrow(e, i, 3)}
-                        placeholder="0"
-                        step="any"
-                        className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
-                      />
-                    </td>
-                    <td className="py-2 px-1 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <div className="hidden lg:block w-16 h-1.5 rounded-full bg-gray-100 overflow-hidden">
-                          <div
-                            className="h-full rounded-full bg-[var(--color-accent)]"
-                            style={{ width: `${pct}%` }}
-                          />
-                        </div>
-                        <input
-                          type="number"
-                          value={fracDisplay}
-                          onChange={(e) => editFraction(r.id, e.target.value)}
-                          onFocus={() => setFracFocused(r.id)}
-                          onBlur={() => { setFracFocused(null); setFracDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
-                          data-row={i} data-col={4}
-                          onKeyDown={(e) => onArrow(e, i, 4)}
-                          placeholder="0"
-                          step="any"
-                          className="text-right font-mono text-sm w-16 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
-                        />
-                        <span className="text-xs text-[var(--color-muted)]">%</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 text-center">
+                <tr key={r.id} className="border-b border-[var(--color-border)] last:border-0 group">
+                  <td className="py-2.5 pr-1 text-center">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(r.id)}
+                      onChange={() => toggleSelect(r.id)}
+                      className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer"
+                    />
+                  </td>
+                  <td className="py-2.5 pr-3">
+                    <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => removeReagent(r.id)}
-                        className="text-[var(--color-muted)] hover:text-red-500 opacity-60 group-hover:opacity-100 transition-all text-lg leading-none"
-                        title="Remove"
-                      >×</button>
-                    </td>
-                  </tr>
-                  {/* Dilution calculator row */}
-                  {isExpanded && ds && (
-                    <tr className="bg-[var(--color-accent-light)]/30">
-                      <td colSpan={7} className="px-6 py-4">
-                        <div className="flex items-center gap-4 flex-wrap">
-                          <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">Dilution</span>
-                          <span className="text-lg font-mono font-bold text-[var(--color-accent)]">C₁V₁ = C₂V₂</span>
-                          {/* C1 */}
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-[var(--color-muted)]">C₁</span>
-                            <input
-                              type="text"
-                              value={ds.c1}
-                              onChange={(e) => updateDilField(r.id, 'c1', e.target.value)}
-                              onBlur={() => calcDilution(r.id)}
-                              placeholder="stock"
-                              inputMode="decimal"
-                              className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
-                            />
-                          </div>
-                          <span className="text-xs text-[var(--color-muted)]">×</span>
-                          {/* V1 */}
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-[var(--color-muted)]">V₁</span>
-                            <input
-                              type="text"
-                              value={ds.v1}
-                              onChange={(e) => updateDilField(r.id, 'v1', e.target.value)}
-                              onBlur={() => calcDilution(r.id)}
-                              placeholder="stock vol"
-                              inputMode="decimal"
-                              className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
-                            />
-                          </div>
-                          <span className="text-xs font-[var(--color-muted)]">=</span>
-                          {/* C2 */}
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-[var(--color-muted)]">C₂</span>
-                            <input
-                              type="text"
-                              value={ds.c2}
-                              onChange={(e) => updateDilField(r.id, 'c2', e.target.value)}
-                              onBlur={() => calcDilution(r.id)}
-                              placeholder="final"
-                              inputMode="decimal"
-                              className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
-                            />
-                          </div>
-                          <span className="text-xs text-[var(--color-muted)]">×</span>
-                          {/* V2 */}
-                          <div className="flex items-center gap-1">
-                            <span className="text-xs text-[var(--color-muted)]">V₂</span>
-                            <input
-                              type="text"
-                              value={ds.v2}
-                              onChange={(e) => updateDilField(r.id, 'v2', e.target.value)}
-                              onBlur={() => calcDilution(r.id)}
-                              placeholder="final vol"
-                              inputMode="decimal"
-                              className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
-                            />
-                          </div>
-                          <span className="text-xs text-[var(--color-muted)]">{concUnit}</span>
-                          <Button size="sm" variant="outline" onClick={() => calcDilution(r.id)}>Solve</Button>
-                          <span className="text-xs text-[var(--color-muted)]">
-                            Results sync to reagent concentration &amp; volume
-                          </span>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </>
+                        onClick={() => clickDilArrow(r.id)}
+                        className={`text-xs transition-all ${hasDil ? 'text-[var(--color-accent)]' : 'text-[var(--color-muted)] hover:text-[var(--color-accent)]'}`}
+                        title={hasDil ? 'Remove dilution calculator' : 'Add dilution calculator'}
+                      >{hasDil ? '▼' : '▶'}</button>
+                      <input
+                        value={r.name}
+                        onChange={(e) => updateReagentName(r.id, e.target.value)}
+                        data-row={i} data-col={0}
+                        onKeyDown={(e) => onArrow(e, i, 0)}
+                        className="font-medium bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1.5 py-1 w-full min-w-[80px]"
+                      />
+                    </div>
+                  </td>
+                  <td className="py-2.5 px-3">
+                    <input
+                      value={r.concentration}
+                      onChange={(e) => updateReagentConc(r.id, e.target.value)}
+                      data-row={i} data-col={1}
+                      onKeyDown={(e) => onArrow(e, i, 1)}
+                      placeholder="e.g. 10.5"
+                      inputMode="decimal"
+                      className="text-xs text-[var(--color-muted)] font-mono bg-transparent border-none outline-none focus:bg-gray-50 rounded px-1.5 py-1 w-full min-w-[100px]"
+                    />
+                  </td>
+                  <td className="py-2 px-1 text-right">
+                    <input
+                      type="number"
+                      value={r.volML}
+                      onChange={(e) => editReagentVol(r.id, e.target.value)}
+                      data-row={i} data-col={2}
+                      onKeyDown={(e) => onArrow(e, i, 2)}
+                      placeholder="0"
+                      step="any"
+                      className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
+                    />
+                  </td>
+                  <td className="py-2 px-1 text-right">
+                    <input
+                      type="number"
+                      value={ulDisplay}
+                      onChange={(e) => editReagentUL(r.id, e.target.value)}
+                      onFocus={() => setUlFocused(r.id)}
+                      onBlur={() => { setUlFocused(null); setUlDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
+                      data-row={i} data-col={3}
+                      onKeyDown={(e) => onArrow(e, i, 3)}
+                      placeholder="0"
+                      step="any"
+                      className="text-right font-mono text-sm w-20 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
+                    />
+                  </td>
+                  <td className="py-2 px-1 text-right">
+                    <div className="flex items-center justify-end gap-2">
+                      <div className="hidden lg:block w-16 h-1.5 rounded-full bg-gray-100 overflow-hidden">
+                        <div
+                          className="h-full rounded-full bg-[var(--color-accent)]"
+                          style={{ width: `${pct}%` }}
+                        />
+                      </div>
+                      <input
+                        type="number"
+                        value={fracDisplay}
+                        onChange={(e) => editFraction(r.id, e.target.value)}
+                        onFocus={() => setFracFocused(r.id)}
+                        onBlur={() => { setFracFocused(null); setFracDraft((prev) => { const next = { ...prev }; delete next[r.id]; return next }) }}
+                        data-row={i} data-col={4}
+                        onKeyDown={(e) => onArrow(e, i, 4)}
+                        placeholder="0"
+                        step="any"
+                        className="text-right font-mono text-sm w-16 border border-[var(--color-border)] rounded-lg px-2 py-1.5 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30 focus:border-[var(--color-accent)] transition-all"
+                      />
+                      <span className="text-xs text-[var(--color-muted)]">%</span>
+                    </div>
+                  </td>
+                  <td className="py-2.5 text-center">
+                    <button
+                      onClick={() => removeReagent(r.id)}
+                      className="text-[var(--color-muted)] hover:text-red-500 opacity-60 group-hover:opacity-100 transition-all text-lg leading-none"
+                      title="Remove"
+                    >×</button>
+                  </td>
+                </tr>
               )
             })}
           </tbody>
@@ -544,6 +469,94 @@ export default function SolutionTool() {
             </tr>
           </tfoot>
         </table>
+
+        {/* Dilution calculator rows (below the table, after Total Volume) */}
+        {dilRows.length > 0 && (
+          <div className="mt-2 space-y-2">
+            {dilRows.map((ds) => {
+              const reagent = reagents.find((r) => r.id === ds.reagentId)
+              return (
+                <div key={ds.id} className="bg-[var(--color-accent-light)]/40 border border-[var(--color-accent)]/20 rounded-lg px-4 py-3">
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-xs font-bold text-[var(--color-muted)] uppercase tracking-wide">
+                      {reagent?.name || 'Reagent'} Dilution
+                    </span>
+                    <span className="text-base font-mono font-bold text-[var(--color-accent)]">C₁V₁ = C₂V₂</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-[var(--color-muted)]">C₁</span>
+                      <input
+                        type="text"
+                        value={ds.c1}
+                        onChange={(e) => updateDilField(ds.id, 'c1', e.target.value)}
+                        onBlur={() => calcDilution(ds.id)}
+                        placeholder="stock"
+                        inputMode="decimal"
+                        className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                      />
+                    </div>
+                    <span className="text-xs text-[var(--color-muted)]">×</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-[var(--color-muted)]">V₁</span>
+                      <input
+                        type="text"
+                        value={ds.v1}
+                        onChange={(e) => updateDilField(ds.id, 'v1', e.target.value)}
+                        onBlur={() => calcDilution(ds.id)}
+                        placeholder="stock vol"
+                        inputMode="decimal"
+                        className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                      />
+                    </div>
+                    <span className="text-sm text-[var(--color-muted)]">=</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-[var(--color-muted)]">C₂</span>
+                      <input
+                        type="text"
+                        value={ds.c2}
+                        onChange={(e) => updateDilField(ds.id, 'c2', e.target.value)}
+                        onBlur={() => calcDilution(ds.id)}
+                        placeholder="final"
+                        inputMode="decimal"
+                        className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                      />
+                    </div>
+                    <span className="text-xs text-[var(--color-muted)]">×</span>
+                    <div className="flex items-center gap-1">
+                      <span className="text-xs text-[var(--color-muted)]">V₂</span>
+                      <input
+                        type="text"
+                        value={ds.v2}
+                        onChange={(e) => updateDilField(ds.id, 'v2', e.target.value)}
+                        onBlur={() => calcDilution(ds.id)}
+                        placeholder="final vol"
+                        inputMode="decimal"
+                        className="w-16 text-sm font-mono text-center border border-[var(--color-border)] rounded-md px-1.5 py-1 bg-white outline-none focus:ring-2 focus:ring-[var(--color-accent)]/30"
+                      />
+                    </div>
+                    <span className="text-xs text-[var(--color-muted)]">{concUnit}</span>
+                    <Button size="sm" variant="outline" onClick={() => calcDilution(ds.id)}>Solve</Button>
+                    <button
+                      onClick={() => removeDilRow(ds.id)}
+                      className="text-[var(--color-muted)] hover:text-red-500 transition-all text-lg leading-none ml-auto"
+                      title="Remove dilution calculator"
+                    >×</button>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Confirm dialog for adding dilution */}
+        {pendingDilReagent && (
+          <div className="mt-3 flex items-center gap-3 bg-[var(--color-accent-light)] border border-[var(--color-accent)]/30 rounded-lg px-4 py-3">
+            <span className="text-sm">
+              Add dilution calculator for <span className="font-bold">{reagents.find((r) => r.id === pendingDilReagent)?.name}?</span>
+            </span>
+            <Button size="sm" onClick={confirmAddDil}>Add</Button>
+            <Button size="sm" variant="ghost" onClick={cancelAddDil}>Cancel</Button>
+          </div>
+        )}
       </Card>
 
       <div className="flex justify-center gap-3">
@@ -551,7 +564,6 @@ export default function SolutionTool() {
         <Button variant="ghost" onClick={resetToPresets}>Reset Presets</Button>
       </div>
 
-      {/* Save bar */}
       <Card>
         <div className="flex items-center gap-3 flex-wrap">
           <input
