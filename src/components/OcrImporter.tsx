@@ -84,9 +84,10 @@ function totalExpected(groups: ConcGroup[]): number {
   return groups.reduce((sum, g) => sum + g.samples, 0)
 }
 
-// Mass sheet: 4 mass values per row (t=0h, t=18h, t=23h, t=48h)
-// Columns: A=Conc, B=Sample, C=t=0h, D=t=18h, E=t=23h, F=t=48h
-// Formulas: G=(D-C)/C*100, H=(E-D)/D*100, I=(F-E)/E*100
+// Mass sheet: grows horizontally. Each import adds 1 mass column + 1 percent change column.
+// Row 1 = headers. Row 2+ = data (A=Conc, B=Sample, then pairs of mass/percent columns)
+// First import (t=0h) only adds mass column (no percent change baseline).
+// Subsequent imports add mass + percent change vs previous time point.
 
 // ── Component ──────────────────────────────────────────────────────
 
@@ -123,7 +124,7 @@ export default function OcrImporter() {
   useEffect(() => { saveSettings({ mode }) }, [mode])
 
   const activeGroups = mode === 'volume' ? groups : massGroups
-  const valuesPerRow = mode === 'volume' ? 5 : 4 // volume: 5 diameters, mass: 4 time points
+  const valuesPerRow = mode === 'volume' ? 5 : 1 // volume: 5 diameters, mass: 1 mass value per sample
 
   const updateGroup = (idx: number, patch: Partial<ConcGroup>) => {
     if (mode === 'volume') {
@@ -179,6 +180,7 @@ export default function OcrImporter() {
 
   const syncToSheet = async () => {
     if (mode === 'volume' && !timeLabel.trim()) { setError('Enter a time point (e.g. t=47h).'); return }
+    if (mode === 'mass' && !timeLabel.trim()) { setError('Enter a time point (e.g. t=18h).'); return }
     if (parsed.rows.length === 0) { setError('No data to sync.'); return }
     if (parsed.errors.length > 0) { setError('Fix parsing errors first.'); return }
 
@@ -201,15 +203,16 @@ export default function OcrImporter() {
           mode: 'no-cors',
         })
       } else {
-        // Mass mode: write 4 mass values into columns C~F
+        // Mass mode: add a new column for this time point
         await fetch(appsScriptUrl, {
           method: 'POST',
           body: JSON.stringify({
             sheetType: 'mass',
+            timeLabel: timeLabel.trim(),
             batch: parsed.rows.map(r => ({
               concentration: r.conc,
               sample: r.sample,
-              values: r.values.slice(0, 4),
+              values: r.values.slice(0, 1),
             })),
           }),
           headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -243,7 +246,7 @@ export default function OcrImporter() {
   // Column headers for preview
   const previewCols = mode === 'volume'
     ? ['Dia_1', 'Dia_2', 'Dia_3', 'Dia_4', 'Dia_5']
-    : ['t=0h', 't=18h', 't=23h', 't=48h']
+    : ['Mass (mg)']
 
   return (
     <div className="space-y-4">
@@ -273,22 +276,25 @@ export default function OcrImporter() {
         <p className="text-sm text-[var(--color-muted)] mb-4">
           {mode === 'volume'
             ? 'Each line = 5 diameter values for one sample. Auto-creates time block in volume sheet.'
-            : 'Each line = 4 mass values (t=0h, t=18h, t=23h, t=48h) for one sample. Writes to mass sheet with auto percent change formulas.'}
+            : 'Each line = 1 mass value for one sample. Adds a new column to mass sheet with auto percent change formula.'}
         </p>
 
-        {/* Time point - only for volume */}
-        {mode === 'volume' && (
-          <div className="mb-4">
-            <label className="block text-xs font-medium text-[var(--color-muted)] mb-1">Time Point</label>
-            <input
-              type="text"
-              value={timeLabel}
-              onChange={(e) => { setTimeLabel(e.target.value); setSyncStatus('idle') }}
-              placeholder="e.g. t=47h"
-              className="w-full max-w-xs px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
+        {/* Time point - needed for both modes */}
+        <div className="mb-4">
+          <label className="block text-xs font-medium text-[var(--color-muted)] mb-1">Time Point</label>
+          <input
+            type="text"
+            value={timeLabel}
+            onChange={(e) => { setTimeLabel(e.target.value); setSyncStatus('idle') }}
+            placeholder="e.g. t=47h"
+            className="w-full max-w-xs px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
             />
+          <div className="text-[10px] text-[var(--color-muted)] mt-1">
+            {mode === 'volume'
+              ? 'Free input, auto-creates new block in volume sheet'
+              : 'Each import adds a new mass column + percent change column to mass sheet'}
           </div>
-        )}
+        </div>
 
         {/* Concentration groups */}
         <div>
@@ -350,7 +356,7 @@ export default function OcrImporter() {
           onChange={(e) => { setTextData(e.target.value); setFileName(''); setSyncStatus('idle') }}
           placeholder={mode === 'volume'
             ? `Paste data: 5 diameter values per line.\n\n9239.71 9196.33 9203.01 9302.72 9215.09\n9187.00 9297.55 9183.15 9241.80 9172.47\n...`
-            : `Paste data: 4 mass values per line (t=0h, t=18h, t=23h, t=48h).\n\n389.0 401.7 451.7 366.0\n372.0 379.3 412.3 351.4\n...`
+            : `Paste data: 1 mass value per line for this time point.\n\n389.0\n372.0\n374.9\n375.2\n338.6\n...`
           }
           rows={8}
           className="w-full px-3 py-2 text-sm font-mono border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)] resize-y"
@@ -462,7 +468,7 @@ export default function OcrImporter() {
             <p>The script handles both Volume and Mass sheets automatically:</p>
             <ul className="list-disc list-inside space-y-0.5 ml-2">
               <li><b>Volume mode</b>: writes 5 diameter values per sample, auto-creates time blocks with vol/std formulas</li>
-              <li><b>Mass mode</b>: writes 4 mass values per sample (t=0h/18h/23h/48h), auto-fills percent change formulas</li>
+              <li><b>Mass mode</b>: adds a new mass column + percent change column per import, grows horizontally</li>
             </ul>
 
             <p className="font-medium text-[var(--color-text)]">Full Apps Script code:</p>
@@ -588,8 +594,73 @@ function handleVolume(data, ss) {
 // ── Mass sheet ──
 function handleMass(data, ss) {
   var sheet = ss.getSheetByName('mass');
+  var timeLabel = data.timeLabel;
   var batch = data.batch || [];
 
+  // Find or create column structure
+  // Row 1 = headers: A=Conc, B=Sample, C=mass_t=Xh_mg, D=percent_change_%, E=mass_t=..., F=percent_...
+  var lastCol = sheet.getLastColumn();
+  var massCol, prevMassCol = -1;
+
+  if (lastCol < 2) {
+    // First time: set up headers
+    sheet.getRange(1, 1).setValue('Concentration_%(w/v)');
+    sheet.getRange(1, 2).setValue('Sample');
+    massCol = 3;
+    sheet.getRange(1, massCol).setValue('mass_' + timeLabel + '_mg');
+    // No percent change for first time point
+  } else {
+    // Check if this timeLabel column already exists
+    var headers = sheet.getRange(1, 1, 1, lastCol).getValues()[0];
+    var found = -1;
+    for (var i = 2; i < headers.length; i++) {
+      if (headers[i] === 'mass_' + timeLabel + '_mg') {
+        found = i + 1; // 1-based col
+        break;
+      }
+    }
+
+    if (found !== -1) {
+      // Overwrite existing column
+      massCol = found;
+    } else {
+      // Add new column at the end
+      massCol = lastCol + 1;
+      sheet.getRange(1, massCol).setValue('mass_' + timeLabel + '_mg');
+    }
+
+    // Find previous mass column (rightmost mass column before massCol)
+    for (var i = headers.length - 1; i >= 2; i--) {
+      var h = headers[i];
+      if (h && String(h).indexOf('mass_') === 0 && (i + 1) < massCol) {
+        prevMassCol = i + 1; // 1-based
+        break;
+      }
+    }
+    // If headers didn't include new col yet
+    if (prevMassCol === -1 && lastCol >= 3) {
+      // Scan all including new
+      var allHeaders = sheet.getRange(1, 1, 1, massCol).getValues()[0];
+      for (var i = allHeaders.length - 1; i >= 2; i--) {
+        var h = allHeaders[i];
+        if (h && String(h).indexOf('mass_') === 0 && (i + 1) < massCol) {
+          prevMassCol = i + 1;
+          break;
+        }
+      }
+    }
+
+    // Add percent change column if we have a previous mass col
+    if (prevMassCol !== -1) {
+      var pctCol = massCol + 1;
+      var prevLabel = headers[prevMassCol - 1] || '';
+      prevLabel = String(prevLabel).replace('mass_', '').replace('_mg', '');
+      sheet.getRange(1, pctCol).setValue(
+        'percent change_' + prevLabel + '-' + timeLabel + '_%');
+    }
+  }
+
+  // Build group structure
   var groups = [];
   var cc = null, sc = 0;
   batch.forEach(function(item) {
@@ -600,7 +671,7 @@ function handleMass(data, ss) {
   });
   if (cc !== null) groups.push({conc: cc, samples: sc});
 
-  // Row 1 = headers, data starts Row 2
+  // Write each sample's mass value
   batch.forEach(function(item) {
     var groupOff = 0;
     for (var i = 0; i < groups.length; i++) {
@@ -613,23 +684,31 @@ function handleMass(data, ss) {
       sheet.getRange(row, 1).setValue(parseFloat(item.concentration));
     sheet.getRange(row, 2).setValue(item.sample);
 
-    // C~F = mass values (t=0h, t=18h, t=23h, t=48h)
-    var vals = item.values.slice(0, 4);
-    while (vals.length < 4) vals.push(0);
-    sheet.getRange(row, 3, 1, 4).setValues([vals]);
+    // Write mass value
+    var val = item.values[0] || 0;
+    sheet.getRange(row, massCol).setValue(val);
 
-    // G = (D-C)/C*100
-    sheet.getRange(row, 7).setFormula(
-      '=(D' + row + '-C' + row + ')/C' + row + '*100');
-    // H = (E-D)/D*100
-    sheet.getRange(row, 8).setFormula(
-      '=(E' + row + '-D' + row + ')/D' + row + '*100');
-    // I = (F-E)/E*100
-    sheet.getRange(row, 9).setFormula(
-      '=(F' + row + '-E' + row + ')/E' + row + '*100');
+    // Write percent change formula if previous mass exists
+    if (prevMassCol !== -1) {
+      var pctCol = massCol + 1;
+      var prevColLetter = columnLetter(prevMassCol);
+      var newColLetter = columnLetter(massCol);
+      sheet.getRange(row, pctCol).setFormula(
+        '=(' + newColLetter + row + '-' + prevColLetter + row + ')/' + prevColLetter + row + '*100');
+    }
   });
 
-  return jsonOut({ ok: true, count: batch.length });
+  return jsonOut({ ok: true, count: batch.length, massCol: massCol });
+}
+
+function columnLetter(col) {
+  var letter = '';
+  while (col > 0) {
+    var rem = (col - 1) % 26;
+    letter = String.fromCharCode(65 + rem) + letter;
+    col = Math.floor((col - 1) / 26);
+  }
+  return letter;
 }
 
 function doGet(e) {
