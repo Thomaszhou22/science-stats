@@ -466,10 +466,9 @@ export default function OcrImporter() {
       var groupOff = 0;
       for (var i=0; i<groups2.length; i++) {
         if (groups2[i].conc === String(item.concentration)) break;
-        groupOff += 1 + groups2[i].samples;
+        groupOff += groups2[i].samples;
       }
-      // +1 to skip the concentration label row of the current group
-      var targetRow = blockStart + 2 + groupOff + 1 + (item.sample - 1);
+      var targetRow = blockStart + 2 + groupOff + (item.sample - 1);
       var vals = item.values.slice(0,5);
       while (vals.length < 5) vals.push(0);
       sheet.getRange(targetRow, 3, 1, 5).setValues([vals]);
