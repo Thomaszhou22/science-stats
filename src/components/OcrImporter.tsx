@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react'
 import { Card, Button } from './ui'
 
-const STORAGE_KEY = 'science-stats-importer'
+const STORAGE_KEY = 'scienc…rter'
+
+type ImportMode = 'volume' | 'mass'
 
 interface ConcGroup {
   conc: string
@@ -12,6 +14,8 @@ interface ImporterSettings {
   timeLabel: string
   groups: ConcGroup[]
   appsScriptUrl: string
+  mode: ImportMode
+  massGroups: ConcGroup[]
 }
 
 function loadSettings(): Partial<ImporterSettings> {
@@ -38,10 +42,9 @@ interface ParsedRow {
 }
 
 /**
- * Parse text into rows. Each line = 5 numbers (Dia_1~Dia_5).
- * Lines are mapped to concentration groups in order.
+ * Parse text into rows. Each line = values for one sample.
  */
-function parseTextData(text: string, groups: ConcGroup[]): { rows: ParsedRow[]; errors: string[] } {
+function parseTextData(text: string, groups: ConcGroup[], valuesPerRow: number): { rows: ParsedRow[]; errors: string[] } {
   const lines = text.trim().split('\n').map(l => l.trim()).filter(l => l.length > 0)
   const rows: ParsedRow[] = []
   const errors: string[] = []
@@ -56,6 +59,9 @@ function parseTextData(text: string, groups: ConcGroup[]): { rows: ParsedRow[]; 
       const parts = lines[lineIdx].split(/[\s,\t]+/).map(p => parseFloat(p))
       if (parts.some(p => isNaN(p))) {
         errors.push(`Line ${lineIdx + 1}: "${lines[lineIdx]}" contains non-numeric values.`)
+      }
+      if (parts.length < valuesPerRow) {
+        errors.push(`Line ${lineIdx + 1}: expected ${valuesPerRow} values, got ${parts.length}.`)
       }
       rows.push({
         conc: group.conc,
@@ -78,10 +84,15 @@ function totalExpected(groups: ConcGroup[]): number {
   return groups.reduce((sum, g) => sum + g.samples, 0)
 }
 
+// Mass sheet: 4 mass values per row (t=0h, t=18h, t=23h, t=48h)
+// Columns: A=Conc, B=Sample, C=t=0h, D=t=18h, E=t=23h, F=t=48h
+// Formulas: G=(D-C)/C*100, H=(E-D)/D*100, I=(F-E)/E*100
+
 // ── Component ──────────────────────────────────────────────────────
 
 export default function OcrImporter() {
   const saved = loadSettings()
+  const [mode, setMode] = useState<ImportMode>(saved.mode ?? 'volume')
   const [timeLabel, setTimeLabel] = useState(saved.timeLabel ?? '')
   const defaultGroups = saved.groups ?? [
     { conc: '10', samples: 4 },
@@ -89,6 +100,13 @@ export default function OcrImporter() {
     { conc: '8', samples: 4 },
   ]
   const [groups, setGroups] = useState<ConcGroup[]>(defaultGroups)
+  // Mass mode uses same group structure but can be different
+  const defaultMassGroups = saved.massGroups ?? [
+    { conc: '10', samples: 4 },
+    { conc: '9', samples: 3 },
+    { conc: '8', samples: 4 },
+  ]
+  const [massGroups, setMassGroups] = useState<ConcGroup[]>(defaultMassGroups)
   const [textData, setTextData] = useState('')
   const [fileName, setFileName] = useState('')
   const [appsScriptUrl, setAppsScriptUrl] = useState(
@@ -100,20 +118,37 @@ export default function OcrImporter() {
 
   useEffect(() => { saveSettings({ timeLabel }) }, [timeLabel])
   useEffect(() => { saveSettings({ groups }) }, [groups])
+  useEffect(() => { saveSettings({ massGroups }) }, [massGroups])
   useEffect(() => { saveSettings({ appsScriptUrl }) }, [appsScriptUrl])
+  useEffect(() => { saveSettings({ mode }) }, [mode])
+
+  const activeGroups = mode === 'volume' ? groups : massGroups
+  const valuesPerRow = mode === 'volume' ? 5 : 4 // volume: 5 diameters, mass: 4 time points
 
   const updateGroup = (idx: number, patch: Partial<ConcGroup>) => {
-    setGroups(prev => prev.map((g, i) => i === idx ? { ...g, ...patch } : g))
+    if (mode === 'volume') {
+      setGroups(prev => prev.map((g, i) => i === idx ? { ...g, ...patch } : g))
+    } else {
+      setMassGroups(prev => prev.map((g, i) => i === idx ? { ...g, ...patch } : g))
+    }
     setSyncStatus('idle')
   }
 
   const addGroup = () => {
-    setGroups(prev => [...prev, { conc: '', samples: 1 }])
+    if (mode === 'volume') {
+      setGroups(prev => [...prev, { conc: '', samples: 1 }])
+    } else {
+      setMassGroups(prev => [...prev, { conc: '', samples: 1 }])
+    }
     setSyncStatus('idle')
   }
 
   const removeGroup = (idx: number) => {
-    setGroups(prev => prev.filter((_, i) => i !== idx))
+    if (mode === 'volume') {
+      setGroups(prev => prev.filter((_, i) => i !== idx))
+    } else {
+      setMassGroups(prev => prev.filter((_, i) => i !== idx))
+    }
     setSyncStatus('idle')
   }
 
@@ -121,8 +156,6 @@ export default function OcrImporter() {
     const file = e.target.files?.[0]
     if (!file) return
     setFileName(file.name)
-
-    // Support .txt and .docx
     if (file.name.endsWith('.txt') || file.type.startsWith('text/')) {
       const reader = new FileReader()
       reader.onload = (ev) => {
@@ -131,11 +164,9 @@ export default function OcrImporter() {
       }
       reader.readAsText(file)
     } else {
-      // For .docx, read as text anyway (basic extraction)
       const reader = new FileReader()
       reader.onload = (ev) => {
         const result = ev.target?.result as string
-        // Strip basic XML tags if it's actually XML (docx is xml inside)
         const cleaned = result.replace(/<[^>]+>/g, ' ').replace(/\s+/g, '\n')
         setTextData(cleaned)
         setSyncStatus('idle')
@@ -144,30 +175,47 @@ export default function OcrImporter() {
     }
   }
 
-  const parsed = textData.trim() ? parseTextData(textData, groups) : { rows: [], errors: [] }
+  const parsed = textData.trim() ? parseTextData(textData, activeGroups, valuesPerRow) : { rows: [], errors: [] }
 
   const syncToSheet = async () => {
-    if (!timeLabel.trim()) { setError('Enter a time point (e.g. t=47h).'); return }
+    if (mode === 'volume' && !timeLabel.trim()) { setError('Enter a time point (e.g. t=47h).'); return }
     if (parsed.rows.length === 0) { setError('No data to sync.'); return }
     if (parsed.errors.length > 0) { setError('Fix parsing errors first.'); return }
 
     setSyncStatus('syncing')
     setError('')
     try {
-      // Send all rows as a batch
-      await fetch(appsScriptUrl, {
-        method: 'POST',
-        body: JSON.stringify({
-          timeLabel: timeLabel.trim(),
-          batch: parsed.rows.map(r => ({
-            concentration: r.conc,
-            sample: r.sample,
-            values: r.values.slice(0, 5),
-          })),
-        }),
-        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-        mode: 'no-cors',
-      })
+      if (mode === 'volume') {
+        await fetch(appsScriptUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            sheetType: 'volume',
+            timeLabel: timeLabel.trim(),
+            batch: parsed.rows.map(r => ({
+              concentration: r.conc,
+              sample: r.sample,
+              values: r.values.slice(0, 5),
+            })),
+          }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          mode: 'no-cors',
+        })
+      } else {
+        // Mass mode: write 4 mass values into columns C~F
+        await fetch(appsScriptUrl, {
+          method: 'POST',
+          body: JSON.stringify({
+            sheetType: 'mass',
+            batch: parsed.rows.map(r => ({
+              concentration: r.conc,
+              sample: r.sample,
+              values: r.values.slice(0, 4),
+            })),
+          }),
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          mode: 'no-cors',
+        })
+      }
       setSyncStatus('done')
     } catch (err) {
       setSyncStatus('error')
@@ -182,29 +230,65 @@ export default function OcrImporter() {
     setError('')
   }
 
-  const expectedRows = totalExpected(groups)
+  const switchMode = (m: ImportMode) => {
+    setMode(m)
+    setTextData('')
+    setFileName('')
+    setSyncStatus('idle')
+    setError('')
+  }
+
+  const expectedRows = totalExpected(activeGroups)
+
+  // Column headers for preview
+  const previewCols = mode === 'volume'
+    ? ['Dia_1', 'Dia_2', 'Dia_3', 'Dia_4', 'Dia_5']
+    : ['t=0h', 't=18h', 't=23h', 't=48h']
 
   return (
     <div className="space-y-4">
+      {/* Mode switcher */}
+      <div className="flex gap-1 p-1 bg-gray-100 rounded-lg w-fit">
+        <button
+          onClick={() => switchMode('volume')}
+          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+            mode === 'volume' ? 'bg-white shadow-sm text-[var(--color-accent)]' : 'text-[var(--color-muted)]'
+          }`}
+        >
+          Volume (Diameter)
+        </button>
+        <button
+          onClick={() => switchMode('mass')}
+          className={`px-4 py-1.5 text-sm font-medium rounded-md transition-all ${
+            mode === 'mass' ? 'bg-white shadow-sm text-[var(--color-accent)]' : 'text-[var(--color-muted)]'
+          }`}
+        >
+          Mass
+        </button>
+      </div>
+
       {/* Config */}
       <Card>
         <h2 className="text-base font-bold mb-3">Experiment Data Importer</h2>
         <p className="text-sm text-[var(--color-muted)] mb-4">
-          Upload a text file or paste raw data. Each line = one sample's 5 diameter values.
-          Lines are filled in order by concentration group.
+          {mode === 'volume'
+            ? 'Each line = 5 diameter values for one sample. Auto-creates time block in volume sheet.'
+            : 'Each line = 4 mass values (t=0h, t=18h, t=23h, t=48h) for one sample. Writes to mass sheet with auto percent change formulas.'}
         </p>
 
-        {/* Time point */}
-        <div className="mb-4">
-          <label className="block text-xs font-medium text-[var(--color-muted)] mb-1">Time Point</label>
-          <input
-            type="text"
-            value={timeLabel}
-            onChange={(e) => { setTimeLabel(e.target.value); setSyncStatus('idle') }}
-            placeholder="e.g. t=47h"
-            className="w-full max-w-xs px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
-          />
-        </div>
+        {/* Time point - only for volume */}
+        {mode === 'volume' && (
+          <div className="mb-4">
+            <label className="block text-xs font-medium text-[var(--color-muted)] mb-1">Time Point</label>
+            <input
+              type="text"
+              value={timeLabel}
+              onChange={(e) => { setTimeLabel(e.target.value); setSyncStatus('idle') }}
+              placeholder="e.g. t=47h"
+              className="w-full max-w-xs px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
+            />
+          </div>
+        )}
 
         {/* Concentration groups */}
         <div>
@@ -213,18 +297,16 @@ export default function OcrImporter() {
             <Button size="sm" variant="ghost" onClick={addGroup}>+ Add Group</Button>
           </div>
           <div className="space-y-2">
-            {groups.map((g, i) => (
+            {activeGroups.map((g, i) => (
               <div key={i} className="flex items-center gap-2">
                 <span className="text-xs text-[var(--color-muted)] w-6">#{i + 1}</span>
-                <div className="flex-1">
-                  <input
-                    type="text"
-                    value={g.conc}
-                    onChange={(e) => updateGroup(i, { conc: e.target.value })}
-                    placeholder="Conc %"
-                    className="w-full px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
-                  />
-                </div>
+                <input
+                  type="text"
+                  value={g.conc}
+                  onChange={(e) => updateGroup(i, { conc: e.target.value })}
+                  placeholder="Conc %"
+                  className="flex-1 px-3 py-1.5 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
+                />
                 <span className="text-xs text-[var(--color-muted)]">samples:</span>
                 <input
                   type="number"
@@ -237,7 +319,7 @@ export default function OcrImporter() {
                 <button
                   onClick={() => removeGroup(i)}
                   className="text-xs text-red-400 hover:text-red-600 px-1"
-                  disabled={groups.length <= 1}
+                  disabled={activeGroups.length <= 1}
                 >
                   ✕
                 </button>
@@ -245,7 +327,7 @@ export default function OcrImporter() {
             ))}
           </div>
           <div className="text-xs text-[var(--color-muted)] mt-2 font-mono">
-            Total: {expectedRows} rows expected in your data file
+            Total: {expectedRows} rows / {valuesPerRow} values per line
           </div>
         </div>
       </Card>
@@ -256,7 +338,7 @@ export default function OcrImporter() {
           <h3 className="text-sm font-bold">Data Input</h3>
           <div className="flex gap-2">
             <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--color-border)] bg-white hover:bg-gray-50 cursor-pointer">
-              📄 Upload .txt
+              Upload .txt
               <input type="file" accept=".txt,.docx,.doc,text/*" onChange={onFileUpload} className="hidden" />
             </label>
             {fileName && <span className="text-xs text-[var(--color-muted)] self-center">{fileName}</span>}
@@ -266,7 +348,10 @@ export default function OcrImporter() {
         <textarea
           value={textData}
           onChange={(e) => { setTextData(e.target.value); setFileName(''); setSyncStatus('idle') }}
-          placeholder={`Paste data here, one sample per line.\nEach line: 5 diameter values separated by spaces or commas.\n\nExample:\n9239.71 9196.33 9203.01 9302.72 9215.09\n9187.00 9297.55 9183.15 9241.80 9172.47\n...`}
+          placeholder={mode === 'volume'
+            ? `Paste data: 5 diameter values per line.\n\n9239.71 9196.33 9203.01 9302.72 9215.09\n9187.00 9297.55 9183.15 9241.80 9172.47\n...`
+            : `Paste data: 4 mass values per line (t=0h, t=18h, t=23h, t=48h).\n\n389.0 401.7 451.7 366.0\n372.0 379.3 412.3 351.4\n...`
+          }
           rows={8}
           className="w-full px-3 py-2 text-sm font-mono border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)] resize-y"
         />
@@ -288,11 +373,9 @@ export default function OcrImporter() {
                 <tr className="border-b border-[var(--color-border)] text-[var(--color-muted)]">
                   <th className="text-left py-1.5 px-2">Conc %</th>
                   <th className="text-left py-1.5 px-2">Sample</th>
-                  <th className="text-right py-1.5 px-2">Dia_1</th>
-                  <th className="text-right py-1.5 px-2">Dia_2</th>
-                  <th className="text-right py-1.5 px-2">Dia_3</th>
-                  <th className="text-right py-1.5 px-2">Dia_4</th>
-                  <th className="text-right py-1.5 px-2">Dia_5</th>
+                  {previewCols.map(c => (
+                    <th key={c} className="text-right py-1.5 px-2">{c}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody className="font-mono">
@@ -300,7 +383,7 @@ export default function OcrImporter() {
                   <tr key={i} className="border-b border-[var(--color-border)]/50 hover:bg-gray-50">
                     <td className="py-1.5 px-2 font-sans font-medium">{r.conc}</td>
                     <td className="py-1.5 px-2 font-sans">{r.sample}</td>
-                    {Array.from({ length: 5 }, (_, j) => (
+                    {Array.from({ length: valuesPerRow }, (_, j) => (
                       <td key={j} className="text-right py-1.5 px-2">
                         {r.values[j]?.toFixed(2) ?? '-'}
                       </td>
@@ -314,7 +397,7 @@ export default function OcrImporter() {
           {parsed.errors.length > 0 && (
             <div className="mt-3 space-y-1">
               {parsed.errors.map((e, i) => (
-                <div key={i} className="text-xs text-amber-600">⚠ {e}</div>
+                <div key={i} className="text-xs text-amber-600">{e}</div>
               ))}
             </div>
           )}
@@ -326,12 +409,14 @@ export default function OcrImporter() {
         <div className="flex gap-2">
           <Button
             onClick={syncToSheet}
-            disabled={syncStatus === 'syncing' || !timeLabel.trim()}
+            disabled={syncStatus === 'syncing' || (mode === 'volume' && !timeLabel.trim())}
             className="flex-1"
           >
-            {syncStatus === 'syncing' ? '⏳ Syncing...' :
-             syncStatus === 'done' ? `✓ Synced ${parsed.rows.length} rows to Google Sheets` :
-             `→ Send ${parsed.rows.length} rows to Google Sheets (${timeLabel.trim() || '...'})`}
+            {syncStatus === 'syncing' ? 'Syncing...' :
+             syncStatus === 'done' ? `Synced ${parsed.rows.length} rows` :
+             mode === 'volume'
+               ? `Send ${parsed.rows.length} rows to volume sheet (${timeLabel.trim() || '...'})`
+               : `Send ${parsed.rows.length} rows to mass sheet`}
           </Button>
           {syncStatus === 'done' && (
             <Button variant="outline" onClick={reset}>Import Another</Button>
@@ -348,150 +433,15 @@ export default function OcrImporter() {
       {/* Setup */}
       <Card>
         <details>
-          <summary className="text-sm font-bold cursor-pointer">⚙ Setup & Apps Script Code</summary>
-          <div className="mt-3 space-y-3 text-sm text-[var(--color-muted)]">
-            <div>
-              <label className="block text-xs font-medium mb-1">Apps Script Web App URL</label>
-              <input
-                type="text"
-                value={appsScriptUrl}
-                onChange={(e) => setAppsScriptUrl(e.target.value)}
-                placeholder="https://script.google.com/macros/s/.../exec"
-                className="w-full px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
-              />
-            </div>
-            <p>The Apps Script handles both single and batch writes. Full code:</p>
-            <pre className="p-3 bg-gray-900 text-green-300 rounded-lg text-xs overflow-auto font-mono max-h-96">
-{`function doPost(e) {
-  try {
-    if (!e || !e.postData || !e.postData.contents)
-      return jsonOut({ error: 'No POST data' });
-
-    const sheet = SpreadsheetApp
-      .getActiveSpreadsheet()
-      .getSheetByName('volume');
-    const data = JSON.parse(e.postData.contents);
-    const timeLabel = data.timeLabel;
-
-    // Find or create time block
-    const lastRow = Math.max(sheet.getLastRow(), 1);
-    const labels = sheet.getRange(1, 1, lastRow, 1).getValues();
-    let blockStart = -1;
-    for (let i = 0; i < labels.length; i++) {
-      if (labels[i][0] === timeLabel) {
-        blockStart = i + 1; break;
-      }
-    }
-
-    if (blockStart === -1) {
-      blockStart = lastRow + 2;
-      sheet.getRange(blockStart, 1).setValue(timeLabel);
-      // Auto-create structure from batch data
-      var batch = data.batch || [];
-      var groups = [];
-      var currentConc = null;
-      var sampleCount = 0;
-      batch.forEach(function(item) {
-        if (currentConc !== item.concentration) {
-          if (currentConc !== null)
-            groups.push({conc: currentConc, samples: sampleCount});
-          currentConc = item.concentration;
-          sampleCount = 1;
-        } else {
-          sampleCount++;
-        }
-      });
-      if (currentConc !== null)
-        groups.push({conc: currentConc, samples: sampleCount});
-
-      var headers = [
-        'Concentration_%(w/v)','Sample',
-        'Dia_1','Dia_2','Dia_3','Dia_4','Dia_5',
-        'vol_1','vol_2','vol_3','vol_4','vol_5',
-        'vol_avg','std_vol','percent change in volume_%'
-      ];
-      sheet.getRange(blockStart+1,1,1,headers.length).setValues([headers]);
-
-      var row = blockStart + 2;
-      groups.forEach(function(g) {
-        sheet.getRange(row,1).setValue(parseFloat(g.conc));
-        for (var s=1; s<=g.samples; s++) {
-          sheet.getRange(row+s,2).setValue(s);
-          ['C','D','E','F','G'].forEach(function(dc,idx){
-            sheet.getRange(row+s,8+idx).setFormula(
-              '=(4/3)*PI()*('+dc+(row+s)+'/2)^3/1000000');
-          });
-          sheet.getRange(row+s,13).setFormula(
-            '=AVERAGE(H'+(row+s)+':L'+(row+s)+')');
-          sheet.getRange(row+s,14).setFormula(
-            '=STDEV(H'+(row+s)+':L'+(row+s)+')');
-        }
-        row += 1 + g.samples;
-      });
-
-      // percent change referencing t=0h
-      var t0Start = -1;
-      for (var i=0; i< labels.length; i++) {
-        if (labels[i][0]==='t=0h') { t0Start=i+1; break; }
-      }
-      if (t0Start!==-1 && timeLabel!=='t=0h') {
-        var t0Data=t0Start+2, off2=0, row2=blockStart+2;
-        groups.forEach(function(g){
-          for (var s=1; s<=g.samples; s++) {
-            var t0Row=t0Data+off2+s;
-            sheet.getRange(row2+s,15).setFormula(
-              '=(M'+(row2+s)+'-M'+t0Row+')/M'+t0Row);
-          }
-          off2+=1+g.samples; row2+=1+g.samples;
-        });
-      }
-    }
-
-    // Write all rows from batch
-    var batch = data.batch || [];
-    // Rebuild group structure to find rows
-    var groups2 = [];
-    var cc = null, sc = 0;
-    batch.forEach(function(item) {
-      if (cc !== item.concentration) {
-        if (cc !== null) groups2.push({conc:cc, samples:sc});
-        cc = item.concentration; sc = 1;
-      } else sc++;
-    });
-    if (cc !== null) groups2.push({conc:cc, samples:sc});
-
-    var off = 0;
-    batch.forEach(function(item) {
-      // Find offset for this concentration
-      var groupOff = 0;
-      for (var i=0; i<groups2.length; i++) {
-        if (groups2[i].conc === String(item.concentration)) break;
-        groupOff += groups2[i].samples;
-      }
-      var targetRow = blockStart + 2 + groupOff + (item.sample - 1);
-      var vals = item.values.slice(0,5);
-      while (vals.length < 5) vals.push(0);
-      sheet.getRange(targetRow, 3, 1, 5).setValues([vals]);
-    });
-
-    return jsonOut({ ok: true, count: batch.length });
-  } catch(err) {
-    return jsonOut({ error: String(err) });
-  }
-}
-
-function doGet(e) {
-  return ContentService.createTextOutput(
-    JSON.stringify({status:'alive'}))
-    .setMimeType(ContentService.MimeType.JSON);
-}
-
-function jsonOut(obj) {
-  return ContentService.createTextOutput(
-    JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}`}
-            </pre>
+          <summary className="text-sm font-bold cursor-pointer">Apps Script URL</summary>
+          <div className="mt-3">
+            <input
+              type="text"
+              value={appsScriptUrl}
+              onChange={(e) => setAppsScriptUrl(e.target.value)}
+              placeholder="https://script.google.com/macros/s/.../exec"
+              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
+            />
           </div>
         </details>
       </Card>
