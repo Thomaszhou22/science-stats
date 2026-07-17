@@ -56,7 +56,7 @@ export default function OcrImporter() {
   const [rawText, setRawText] = useState('')
   const [error, setError] = useState('')
   const [appsScriptUrl, setAppsScriptUrl] = useState(
-    'https://script.google.com/macros/s/AKfycbwiDLeSNYOgUIE8vcBNstuYnVK9zXaf7Ev-vTZIuWFIwaXNKOSC--PmF4hXChYPhkCecQ/exec'
+    'https://script.google.com/macros/s/AKfycbxzDS4r_F4kw5730dQ0AgHZGBKtBAc1aOTznKUhLIaBxH9nf9-jB-UduArizPL7JPL6nA/exec'
   )
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
 
