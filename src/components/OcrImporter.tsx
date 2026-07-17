@@ -433,15 +433,216 @@ export default function OcrImporter() {
       {/* Setup */}
       <Card>
         <details>
-          <summary className="text-sm font-bold cursor-pointer">Apps Script URL</summary>
-          <div className="mt-3">
-            <input
-              type="text"
-              value={appsScriptUrl}
-              onChange={(e) => setAppsScriptUrl(e.target.value)}
-              placeholder="https://script.google.com/macros/s/.../exec"
-              className="w-full px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
-            />
+          <summary className="text-sm font-bold cursor-pointer">Apps Script Setup & Code</summary>
+          <div className="mt-3 space-y-3 text-sm text-[var(--color-muted)]">
+            <div>
+              <label className="block text-xs font-medium mb-1">Apps Script Web App URL</label>
+              <input
+                type="text"
+                value={appsScriptUrl}
+                onChange={(e) => setAppsScriptUrl(e.target.value)}
+                placeholder="https://script.google.com/macros/s/.../exec"
+                className="w-full px-3 py-2 text-sm border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
+              />
+            </div>
+
+            <div className="space-y-1">
+              <p className="font-medium text-[var(--color-text)]">How to set up (one-time):</p>
+              <ol className="list-decimal list-inside space-y-1 ml-2">
+                <li>Open your Google Sheet</li>
+                <li>Go to <b>Extensions</b> → <b>Apps Script</b></li>
+                <li>Delete any existing code, paste the full code below</li>
+                <li>Click <b>Deploy</b> → <b>New deployment</b></li>
+                <li>Type: <b>Web app</b>, Execute as: <b>Me</b>, Who has access: <b>Anyone</b></li>
+                <li>Click <b>Deploy</b>, authorize your Google account</li>
+                <li>Copy the <b>Web App URL</b> and paste it above</li>
+              </ol>
+            </div>
+
+            <p>The script handles both Volume and Mass sheets automatically:</p>
+            <ul className="list-disc list-inside space-y-0.5 ml-2">
+              <li><b>Volume mode</b>: writes 5 diameter values per sample, auto-creates time blocks with vol/std formulas</li>
+              <li><b>Mass mode</b>: writes 4 mass values per sample (t=0h/18h/23h/48h), auto-fills percent change formulas</li>
+            </ul>
+
+            <p className="font-medium text-[var(--color-text)]">Full Apps Script code:</p>
+            <pre className="p-3 bg-gray-900 text-green-300 rounded-lg text-xs overflow-auto font-mono max-h-[500px]">{`function doPost(e) {
+  try {
+    if (!e || !e.postData || !e.postData.contents)
+      return jsonOut({ error: 'No POST data' });
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    var data = JSON.parse(e.postData.contents);
+
+    if (data.sheetType === 'mass') {
+      return handleMass(data, ss);
+    }
+    return handleVolume(data, ss);
+  } catch(err) {
+    return jsonOut({ error: String(err) });
+  }
+}
+
+// ── Volume sheet ──
+function handleVolume(data, ss) {
+  var sheet = ss.getSheetByName('volume');
+  var timeLabel = data.timeLabel;
+
+  var lastRow = Math.max(sheet.getLastRow(), 1);
+  var labels = sheet.getRange(1, 1, lastRow, 1).getValues();
+  var blockStart = -1;
+  for (var i = 0; i < labels.length; i++) {
+    if (labels[i][0] === timeLabel) {
+      blockStart = i + 1; break;
+    }
+  }
+
+  if (blockStart === -1) {
+    blockStart = lastRow + 2;
+    sheet.getRange(blockStart, 1).setValue(timeLabel);
+
+    var batch = data.batch || [];
+    var groups = [];
+    var cc = null, sc = 0;
+    batch.forEach(function(item) {
+      if (cc !== item.concentration) {
+        if (cc !== null) groups.push({conc: cc, samples: sc});
+        cc = item.concentration; sc = 1;
+      } else sc++;
+    });
+    if (cc !== null) groups.push({conc: cc, samples: sc});
+
+    var headers = [
+      'Concentration_%(w/v)','Sample',
+      'Dia_1','Dia_2','Dia_3','Dia_4','Dia_5',
+      'vol_1','vol_2','vol_3','vol_4','vol_5',
+      'vol_avg','std_vol','percent change in volume_%'
+    ];
+    sheet.getRange(blockStart+1, 1, 1, headers.length)
+      .setValues([headers]);
+
+    var row = blockStart + 2;
+    groups.forEach(function(g) {
+      for (var s = 0; s < g.samples; s++) {
+        if (s === 0)
+          sheet.getRange(row, 1).setValue(parseFloat(g.conc));
+        sheet.getRange(row, 2).setValue(s + 1);
+        ['C','D','E','F','G'].forEach(function(dc, idx) {
+          sheet.getRange(row, 8 + idx).setFormula(
+            '=(4/3)*PI()*(' + dc + row + '/2)^3/1000000');
+        });
+        sheet.getRange(row, 13).setFormula(
+          '=AVERAGE(H' + row + ':L' + row + ')');
+        sheet.getRange(row, 14).setFormula(
+          '=STDEV(H' + row + ':L' + row + ')');
+        row++;
+      }
+    });
+
+    // percent change referencing t=0h
+    var t0Start = -1;
+    for (var i = 0; i < labels.length; i++) {
+      if (labels[i][0] === 't=0h') { t0Start = i + 1; break; }
+    }
+    if (t0Start !== -1 && timeLabel !== 't=0h') {
+      var t0Data = t0Start + 2;
+      var off2 = 0, row2 = blockStart + 2;
+      groups.forEach(function(g) {
+        for (var s = 0; s < g.samples; s++) {
+          var t0Row = t0Data + off2 + s;
+          sheet.getRange(row2 + s, 15).setFormula(
+            '=(M' + (row2 + s) + '-M' + t0Row + ')/M' + t0Row);
+        }
+        off2 += g.samples; row2 += g.samples;
+      });
+    }
+  }
+
+  // Write batch data
+  var batch2 = data.batch || [];
+  var groups2 = [];
+  var cc2 = null, sc2 = 0;
+  batch2.forEach(function(item) {
+    if (cc2 !== item.concentration) {
+      if (cc2 !== null) groups2.push({conc: cc2, samples: sc2});
+      cc2 = item.concentration; sc2 = 1;
+    } else sc2++;
+  });
+  if (cc2 !== null) groups2.push({conc: cc2, samples: sc2});
+
+  batch2.forEach(function(item) {
+    var groupOff = 0;
+    for (var i = 0; i < groups2.length; i++) {
+      if (groups2[i].conc === String(item.concentration)) break;
+      groupOff += groups2[i].samples;
+    }
+    var targetRow = blockStart + 2 + groupOff + (item.sample - 1);
+    var vals = item.values.slice(0, 5);
+    while (vals.length < 5) vals.push(0);
+    sheet.getRange(targetRow, 3, 1, 5).setValues([vals]);
+  });
+
+  return jsonOut({ ok: true, count: batch2.length });
+}
+
+// ── Mass sheet ──
+function handleMass(data, ss) {
+  var sheet = ss.getSheetByName('mass');
+  var batch = data.batch || [];
+
+  var groups = [];
+  var cc = null, sc = 0;
+  batch.forEach(function(item) {
+    if (cc !== item.concentration) {
+      if (cc !== null) groups.push({conc: cc, samples: sc});
+      cc = item.concentration; sc = 1;
+    } else sc++;
+  });
+  if (cc !== null) groups.push({conc: cc, samples: sc});
+
+  // Row 1 = headers, data starts Row 2
+  batch.forEach(function(item) {
+    var groupOff = 0;
+    for (var i = 0; i < groups.length; i++) {
+      if (groups[i].conc === String(item.concentration)) break;
+      groupOff += groups[i].samples;
+    }
+    var row = 2 + groupOff + (item.sample - 1);
+
+    if (item.sample === 1)
+      sheet.getRange(row, 1).setValue(parseFloat(item.concentration));
+    sheet.getRange(row, 2).setValue(item.sample);
+
+    // C~F = mass values (t=0h, t=18h, t=23h, t=48h)
+    var vals = item.values.slice(0, 4);
+    while (vals.length < 4) vals.push(0);
+    sheet.getRange(row, 3, 1, 4).setValues([vals]);
+
+    // G = (D-C)/C*100
+    sheet.getRange(row, 7).setFormula(
+      '=(D' + row + '-C' + row + ')/C' + row + '*100');
+    // H = (E-D)/D*100
+    sheet.getRange(row, 8).setFormula(
+      '=(E' + row + '-D' + row + ')/D' + row + '*100');
+    // I = (F-E)/E*100
+    sheet.getRange(row, 9).setFormula(
+      '=(F' + row + '-E' + row + ')/E' + row + '*100');
+  });
+
+  return jsonOut({ ok: true, count: batch.length });
+}
+
+function doGet(e) {
+  return ContentService.createTextOutput(
+    JSON.stringify({status:'alive'}))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(
+    JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}`}</pre>
           </div>
         </details>
       </Card>
