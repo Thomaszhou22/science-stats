@@ -515,80 +515,118 @@ export default function OcrImporter() {
             <p>If you need to recreate the Apps Script, paste this code:</p>
             <pre className="p-3 bg-gray-900 text-green-300 rounded-lg text-xs overflow-auto font-mono max-h-96">
 {`function doPost(e) {
-  const sheet = SpreadsheetApp
-    .getActiveSpreadsheet()
-    .getSheetByName('volume');
-  const data = JSON.parse(e.postData.contents);
-  const { timeLabel, concentration, sample, values } = data;
+  try {
+    if (!e || !e.postData || !e.postData.contents)
+      return jsonOut({ error: 'No POST data' });
 
-  // Search column A for the time label
-  const lastRow = sheet.getLastRow();
-  const labels = sheet.getRange(1, 1, lastRow, 1).getValues();
-  let blockStart = -1;
-  for (let i = 0; i < labels.length; i++) {
-    if (labels[i][0] === timeLabel) {
-      blockStart = i + 1; break;
+    const sheet = SpreadsheetApp
+      .getActiveSpreadsheet()
+      .getSheetByName('volume');
+    const data = JSON.parse(e.postData.contents);
+    const timeLabel = data.timeLabel;
+    const concentration = String(data.concentration);
+    const sample = parseInt(data.sample);
+    const values = data.values;
+    if (!timeLabel || !concentration || !sample || !values)
+      return jsonOut({ error: 'Missing fields' });
+
+    // Search column A for the time label
+    const lastRow = Math.max(sheet.getLastRow(), 1);
+    const labels = sheet.getRange(1, 1, lastRow, 1).getValues();
+    let blockStart = -1;
+    for (let i = 0; i < labels.length; i++) {
+      if (labels[i][0] === timeLabel) {
+        blockStart = i + 1; break;
+      }
     }
-  }
 
-  // If not found, create a new time block
-  if (blockStart === -1) {
-    blockStart = lastRow + 2;
-    sheet.getRange(blockStart, 1).setValue(timeLabel);
-    const headers = ['Concentration_%(w/v)','Sample',
-      'Dia_1','Dia_2','Dia_3','Dia_4','Dia_5',
-      'vol_1','vol_2','vol_3','vol_4','vol_5',
-      'vol_avg','std_vol','percent change in volume_%'];
-    sheet.getRange(blockStart+1,1,1,headers.length)
-      .setValues([headers]);
+    // If not found, create a new time block
+    if (blockStart === -1) {
+      blockStart = lastRow + 2;
+      sheet.getRange(blockStart, 1).setValue(timeLabel);
+      const headers = [
+        'Concentration_%(w/v)','Sample',
+        'Dia_1','Dia_2','Dia_3','Dia_4','Dia_5',
+        'vol_1','vol_2','vol_3','vol_4','vol_5',
+        'vol_avg','std_vol','percent change in volume_%'
+      ];
+      sheet.getRange(blockStart+1,1,1,headers.length)
+        .setValues([headers]);
 
-    const groups = [
+      var groups = [
+        {conc:'10',samples:4},
+        {conc:'9',samples:3},
+        {conc:'8',samples:4}
+      ];
+      var row = blockStart + 2;
+      groups.forEach(function(g) {
+        sheet.getRange(row,1).setValue(parseFloat(g.conc));
+        for (var s=1; s<=g.samples; s++) {
+          sheet.getRange(row+s,2).setValue(s);
+          ['C','D','E','F','G'].forEach(function(dc,idx){
+            sheet.getRange(row+s,8+idx).setFormula(
+              '=(4/3)*PI()*('+dc+(row+s)+'/2)^3/1000000');
+          });
+          sheet.getRange(row+s,13).setFormula(
+            '=AVERAGE(H'+(row+s)+':L'+(row+s)+')');
+          sheet.getRange(row+s,14).setFormula(
+            '=STDEV(H'+(row+s)+':L'+(row+s)+')');
+        }
+        row += 1 + g.samples;
+      });
+
+      // percent change referencing t=0h block
+      var t0Start = -1;
+      for (var i=0; i< labels.length; i++) {
+        if (labels[i][0]==='t=0h') { t0Start=i+1; break; }
+      }
+      if (t0Start!==-1 && timeLabel!=='t=0h') {
+        var t0Data=t0Start+2, off2=0, row2=blockStart+2;
+        groups.forEach(function(g){
+          for (var s=1; s<=g.samples; s++) {
+            var t0Row=t0Data+off2+s;
+            sheet.getRange(row2+s,15).setFormula(
+              '=(M'+(row2+s)+'-M'+t0Row+')/M'+t0Row);
+          }
+          off2+=1+g.samples; row2+=1+g.samples;
+        });
+      }
+    }
+
+    // Find target row within block
+    var groups2=[
       {conc:'10',samples:4},
       {conc:'9',samples:3},
       {conc:'8',samples:4}
     ];
-    let row = blockStart + 2;
-    groups.forEach((g) => {
-      sheet.getRange(row,1).setValue(parseFloat(g.conc));
-      for (let s=1; s<=g.samples; s++) {
-        sheet.getRange(row+s,2).setValue(s);
-        ['C','D','E','F','G'].forEach((dc,idx)=>{
-          sheet.getRange(row+s,8+idx).setFormula(
-            '=(4/3)*PI()*('+dc+(row+s)+'/2)^3/1000000');
-        });
-        sheet.getRange(row+s,13).setFormula(
-          '=AVERAGE(H'+(row+s)+':L'+(row+s)+')');
-        sheet.getRange(row+s,14).setFormula(
-          '=STDEV(H'+(row+s)+':L'+(row+s)+')');
+    var off=0, targetRow=-1;
+    for (var i=0; i<groups2.length; i++) {
+      if (groups2[i].conc===concentration) {
+        targetRow=blockStart+2+off+(sample-1); break;
       }
-      row += 1 + g.samples;
-    });
-  }
-
-  // Find target row within block
-  const groups2 = [
-    {conc:'10',samples:4},
-    {conc:'9',samples:3},
-    {conc:'8',samples:4}
-  ];
-  let off = 0, targetRow = -1;
-  for (const g of groups2) {
-    if (g.conc === String(concentration)) {
-      targetRow = blockStart+2+off+(sample-1);
-      break;
+      off+=1+groups2[i].samples;
     }
-    off += 1 + g.samples;
-  }
-  if (targetRow === -1)
-    return ContentService.createTextOutput(
-      JSON.stringify({error:'bad concentration'}))
-      .setMimeType(ContentService.MimeType.JSON);
+    if (targetRow===-1)
+      return jsonOut({error:'Invalid concentration'});
 
-  sheet.getRange(targetRow,3,1,5).setValues([values]);
+    sheet.getRange(targetRow,3,1,5).setValues([values]);
+    return jsonOut({ok:true,row:targetRow});
+  } catch(err) {
+    return jsonOut({error:String(err)});
+  }
+}
+
+function doGet(e) {
   return ContentService.createTextOutput(
-    JSON.stringify({ok:true,row:targetRow}))
+    JSON.stringify({status:'alive'}))
     .setMimeType(ContentService.MimeType.JSON);
-}`}
+}
+
+function jsonOut(obj) {
+  return ContentService.createTextOutput(
+    JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+`}
             </pre>
           </div>
         </details>
