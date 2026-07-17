@@ -3,15 +3,16 @@ import StatsTool from './components/StatsTool'
 import SolutionTool from './components/SolutionTool'
 import ResultsView from './components/ResultsView'
 import Calculator from './components/Calculator'
+import OcrImporter from './components/OcrImporter'
 
-type Tab = 'stats' | 'solution' | 'calc'
+type Tab = 'stats' | 'solution' | 'calc' | 'import'
 
 export default function App() {
   const [tab, setTab] = useState<Tab>(() => {
     try {
       const saved = localStorage.getItem('science-stats-tab') as string | null
       if (saved === 'results') return 'stats' // migrated: results is no longer a tab
-      return saved === 'stats' || saved === 'solution' || saved === 'calc' ? (saved as Tab) : 'stats'
+      return saved === 'stats' || saved === 'solution' || saved === 'calc' || saved === 'import' ? (saved as Tab) : 'stats'
     } catch { return 'stats' }
   })
   const [showResults, setShowResults] = useState(false)
@@ -25,6 +26,7 @@ export default function App() {
     { key: 'stats', label: 'Statistics', icon: 'σ' },
     { key: 'solution', label: 'Solution Prep', icon: '⚗' },
     { key: 'calc', label: 'Calculator', icon: '⊞' },
+    { key: 'import', label: 'Data Import', icon: '↥' },
   ]
 
   return (
@@ -83,6 +85,7 @@ export default function App() {
             {tab === 'stats' && <StatsTool />}
             {tab === 'solution' && <SolutionTool />}
             {tab === 'calc' && <Calculator />}
+            {tab === 'import' && <OcrImporter />}
           </>
         )}
       </main>
