@@ -57,7 +57,48 @@ function parseMeasurements(text: string): OcrResult[] {
 
 import { createWorker } from 'tesseract.js'
 
+/**
+ * Preprocess image for better OCR:
+ * 1. Scale up 2x
+ * 2. Grayscale
+ * 3. Boost contrast
+ * 4. Sharpen text edges
+ */
+async function preprocessImage(file: File): Promise<Blob> {
+  const img = await createImageBitmap(file)
+  const scale = 2
+  const canvas = document.createElement('canvas')
+  canvas.width = img.width * scale
+  canvas.height = img.height * scale
+  const ctx = canvas.getContext('2d')!
+  ctx.imageSmoothingEnabled = true
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(img, 0, 0, canvas.width, canvas.height)
+
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+  const d = imageData.data
+
+  // Grayscale + contrast boost
+  const contrast = 1.8
+  const intercept = 128 * (1 - contrast)
+  for (let i = 0; i < d.length; i += 4) {
+    // Check if pixel is bright (likely text overlay)
+    const r = d[i], g = d[i + 1], b = d[i + 2]
+    const brightness = (r + g + b) / 3
+    const adjusted = Math.min(255, Math.max(0, brightness * contrast + intercept))
+    // Make bright pixels white, dark pixels black (threshold)
+    const val = adjusted > 140 ? 255 : adjusted < 80 ? 0 : adjusted
+    d[i] = d[i + 1] = d[i + 2] = val
+  }
+  ctx.putImageData(imageData, 0, 0)
+
+  return new Promise(resolve => canvas.toBlob(b => resolve(b!), 'image/png')!)
+}
+
 async function runOcr(imageFile: File, onProgress?: (p: number) => void): Promise<string> {
+  // Preprocess first
+  const processed = await preprocessImage(imageFile)
+
   const worker = await createWorker('eng', 1, {
     logger: (m: { status: string; progress: number }) => {
       if (m.status === 'recognizing text' && onProgress) {
@@ -66,7 +107,7 @@ async function runOcr(imageFile: File, onProgress?: (p: number) => void): Promis
     }
   })
 
-  const { data: { text } } = await worker.recognize(imageFile)
+  const { data: { text } } = await worker.recognize(processed)
   await worker.terminate()
   return text
 }
@@ -164,6 +205,31 @@ export default function OcrImporter() {
 
   const removeResult = (idx: number) => {
     setOcrResults(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  // Quick manual fill: paste/type 5 values at once
+  const [bulkInput, setBulkInput] = useState('')
+  const applyBulk = () => {
+    const nums = bulkInput.split(/[\s,\n]+/).map(s => parseFloat(s.trim())).filter(n => !isNaN(n))
+    if (nums.length === 0) return
+    const results: OcrResult[] = nums.slice(0, 10).map((n, i) => ({ index: i + 1, value: n, rawText: '' }))
+    setOcrResults(results)
+    setBulkInput('')
+  }
+
+  // Start with empty 5 slots for manual mode
+  const startManual = () => {
+    setOcrResults([
+      { index: 1, value: 0, rawText: '' },
+      { index: 2, value: 0, rawText: '' },
+      { index: 3, value: 0, rawText: '' },
+      { index: 4, value: 0, rawText: '' },
+      { index: 5, value: 0, rawText: '' },
+    ])
+    setImageFile(null)
+    setImagePreview(null)
+    setRawText('')
+    setError('')
   }
 
   const syncToSheet = async () => {
@@ -326,6 +392,27 @@ export default function OcrImporter() {
               />
             </div>
           )}
+
+          {/* Manual input divider */}
+          <div className="mt-4 pt-4 border-t border-[var(--color-border)]">
+            <div className="flex items-center gap-2 mb-2">
+              <div className="flex-1 h-px bg-[var(--color-border)]" />
+              <span className="text-xs text-[var(--color-muted)]">or enter manually</span>
+              <div className="flex-1 h-px bg-[var(--color-border)]" />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={bulkInput}
+                onChange={(e) => setBulkInput(e.target.value)}
+                placeholder="Paste 5 values: 9170.57, 9095.94, ..."
+                className="flex-1 px-3 py-2 text-sm font-mono border border-[var(--color-border)] rounded-lg bg-white focus:outline-none focus:border-[var(--color-accent)]"
+                onKeyDown={(e) => { if (e.key === 'Enter') applyBulk() }}
+              />
+              <Button size="sm" variant="outline" onClick={applyBulk} disabled={!bulkInput.trim()}>Fill</Button>
+              <Button size="sm" variant="ghost" onClick={startManual}>5 Empty Slots</Button>
+            </div>
+          </div>
         </Card>
 
         {/* OCR Results */}
