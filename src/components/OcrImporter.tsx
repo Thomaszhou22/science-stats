@@ -1,5 +1,33 @@
-import { useState, useRef, useCallback } from 'react'
+import { useState, useRef, useCallback, useEffect } from 'react'
 import { Card, Button } from './ui'
+
+const STORAGE_KEY = 'science-stats-importer'
+
+interface ImporterSettings {
+  timeLabel: string
+  concentration: string
+  sample: string
+  appsScriptUrl: string
+}
+
+function loadSettings(): Partial<ImporterSettings> {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+
+function saveSettings(s: Partial<ImporterSettings>) {
+  try {
+    const existing = loadSettings()
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...existing, ...s }))
+  } catch {}
+}
+
+// clearSettings available if needed
+// function clearSettings() {
+//   try { localStorage.removeItem(STORAGE_KEY) } catch {}
+// }
 
 // ── OCR ────────────────────────────────────────────────────────────
 
@@ -46,9 +74,10 @@ async function runOcr(imageFile: File, onProgress?: (p: number) => void): Promis
 // ── Component ──────────────────────────────────────────────────────
 
 export default function OcrImporter() {
-  const [timeLabel, setTimeLabel] = useState('')
-  const [concentration, setConcentration] = useState('10')
-  const [sample, setSample] = useState('1')
+  const saved = loadSettings()
+  const [timeLabel, setTimeLabel] = useState(saved.timeLabel ?? '')
+  const [concentration, setConcentration] = useState(saved.concentration ?? '10')
+  const [sample, setSample] = useState(saved.sample ?? '1')
   const [imagePreview, setImagePreview] = useState<string | null>(null)
   const [imageFile, setImageFile] = useState<File | null>(null)
   const [ocrProgress, setOcrProgress] = useState(0)
@@ -57,9 +86,16 @@ export default function OcrImporter() {
   const [rawText, setRawText] = useState('')
   const [error, setError] = useState('')
   const [appsScriptUrl, setAppsScriptUrl] = useState(
+    saved.appsScriptUrl ??
     'https://script.google.com/macros/s/AKfycbxzDS4r_F4kw5730dQ0AgHZGBKtBAc1aOTznKUhLIaBxH9nf9-jB-UduArizPL7JPL6nA/exec'
   )
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
+
+  // Persist settings on change
+  useEffect(() => { saveSettings({ timeLabel }) }, [timeLabel])
+  useEffect(() => { saveSettings({ concentration }) }, [concentration])
+  useEffect(() => { saveSettings({ sample }) }, [sample])
+  useEffect(() => { saveSettings({ appsScriptUrl }) }, [appsScriptUrl])
 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
