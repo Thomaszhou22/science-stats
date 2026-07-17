@@ -93,7 +93,7 @@ export default function OcrImporter() {
   const [fileName, setFileName] = useState('')
   const [appsScriptUrl, setAppsScriptUrl] = useState(
     saved.appsScriptUrl ??
-    'https://script.google.com/macros/s/AKfycbxzDS4r_F4kw5730dQ0AgHZGBKtBAc1aOTznKUhLIaBxH9nf9-jB-UduArizPL7JPL6nA/exec'
+    'https://script.google.com/macros/s/AKfycbzmOc2JbaftdZ93hF90j3-qYGDp9J7o-XQJNbt__5qAjQrV5V9Hsg_qzGnSt0ROSPIxSw/exec'
   )
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
   const [error, setError] = useState('')
