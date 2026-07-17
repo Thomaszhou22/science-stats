@@ -111,7 +111,9 @@ export default function OcrImporter() {
   const [sheetUrl] = useState(
     'https://docs.google.com/spreadsheets/d/1WXWZ09Ya3VUIU0T6mOEvQ_BrlHAD4Rf5smLwRAuOUcc/edit#gid=0'
   )
-  const [appsScriptUrl, setAppsScriptUrl] = useState('')
+  const [appsScriptUrl, setAppsScriptUrl] = useState(
+    'https://script.google.com/macros/s/AKfycbwiDLeSNYOgUIE8vcBNstuYnVK9zXaf7Ev-vTZIuWFIwaXNKOSC--PmF4hXChYPhkCecQ/exec'
+  )
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'done' | 'error'>('idle')
 
   const fileInputRef = useRef<HTMLInputElement>(null)
