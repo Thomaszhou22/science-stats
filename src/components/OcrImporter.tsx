@@ -207,7 +207,9 @@ export default function OcrImporter() {
       const values = [...ocrResults].sort((a, b) => a.index - b.index).slice(0, 5).map(r => r.value)
       while (values.length < 5) values.push(0)
 
-      const response = await fetch(appsScriptUrl, {
+      // Google Apps Script redirects POST 302→GET, so use no-cors mode
+      // The response is opaque but the write still happens server-side
+      await fetch(appsScriptUrl, {
         method: 'POST',
         body: JSON.stringify({
           row: targetRow,
@@ -216,14 +218,11 @@ export default function OcrImporter() {
           concentration,
           sample: parseInt(sample),
         }),
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        mode: 'no-cors',
       })
 
-      if (!response.ok) throw new Error('Server returned ' + response.status)
-
-      const result = await response.json()
-      if (result.error) throw new Error(result.error)
-
+      // no-cors gives opaque response, assume success (script returns {ok:true})
       setSyncStatus('done')
     } catch (err) {
       setSyncStatus('error')
