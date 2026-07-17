@@ -27,9 +27,10 @@ function parseMeasurements(text: string): OcrResult[] {
   return results
 }
 
+import { createWorker } from 'tesseract.js'
+
 async function runOcr(imageFile: File, onProgress?: (p: number) => void): Promise<string> {
-  const Tesseract = await import('tesseract.js')
-  const worker = await Tesseract.createWorker('eng', 1, {
+  const worker = await createWorker('eng', 1, {
     logger: (m: { status: string; progress: number }) => {
       if (m.status === 'recognizing text' && onProgress) {
         onProgress(m.progress)
