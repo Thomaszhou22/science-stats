@@ -1,32 +1,29 @@
-# React + TypeScript + Vite
+# Science Stats Lab
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A lab-data analysis tool built for the Garcia Summer Research Program (Stony Brook University). Paste instrument readouts, get swelling-ratio calculations, uncertainty statistics, and publication-ready plots — replacing an afternoon of spreadsheet pain with a few clicks.
 
-Currently, two official plugins are available:
+**Live:** [science-stats.vercel.app](https://science-stats.vercel.app)
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+**English** | **[中文](README.zh-CN.md)**
 
-## React Compiler
+## Features
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+- 🧪 **Swelling-ratio calculations** for hydrogel characterization experiments
+- 📊 **Uncertainty statistics** — mean, std, confidence intervals at a glance
+- 📈 **Publication-ready plots** — clean charts you can drop straight into a report
 
-## Expanding the Oxlint configuration
+## Tech Stack
 
-If you are developing a production application, we recommend enabling type-aware lint rules by installing `oxlint-tsgolint` and editing `.oxlintrc.json`:
+- React + TypeScript + Vite
 
-```json
-{
-  "$schema": "./node_modules/oxlint/configuration_schema.json",
-  "plugins": ["react", "typescript", "oxc"],
-  "options": {
-    "typeAware": true
-  },
-  "rules": {
-    "react/rules-of-hooks": "error",
-    "react/only-export-components": ["warn", { "allowConstantExport": true }]
-  }
-}
+## Development
+
+```bash
+npm install
+npm run dev
+npm run build
 ```
 
-See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+## License
+
+MIT
